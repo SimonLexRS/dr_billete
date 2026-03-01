@@ -1,5 +1,5 @@
 """
-Servicio OCR usando DeepSeek-OCR via Ollama local (accesible por Tailscale VPN).
+Servicio OCR usando Ollama local (accesible por Tailscale VPN).
 Envia imagenes de billetes para extraer numero de serie, denominacion y serie.
 """
 
@@ -16,7 +16,7 @@ class OCRService:
 
     def extract_from_image(self, image_base64: str) -> dict:
         """
-        Envia una imagen en base64 a DeepSeek-OCR (Ollama) para extraer datos del billete.
+        Envia una imagen en base64 a Ollama para extraer datos del billete.
         Retorna: denomination, serial, series, raw_text
         """
         prompt = """Analiza esta imagen de un billete boliviano y extrae la siguiente informacion.
@@ -103,7 +103,7 @@ y puede tener un prefijo de letras seguido de numeros."""
             return self._fallback_error(f"Error inesperado: {str(e)}")
 
     def _parse_response(self, content: str) -> dict:
-        """Parsea la respuesta de DeepSeek-OCR extrayendo el JSON."""
+        """Parsea la respuesta del modelo de vision extrayendo el JSON."""
         content = content.strip()
 
         json_match = re.search(r"\{[\s\S]*\}", content)
@@ -123,7 +123,7 @@ y puede tener un prefijo de letras seguido de numeros."""
                     "serial": serial,
                     "series": parsed.get("series", ""),
                     "raw_text": parsed.get("raw_text", ""),
-                    "source": "deepseek_ocr_local",
+                    "source": "ollama_local",
                 }
             except (json.JSONDecodeError, ValueError):
                 pass
@@ -132,7 +132,7 @@ y puede tener un prefijo de letras seguido de numeros."""
             "success": False,
             "error": "No se pudo interpretar la respuesta del OCR.",
             "raw_response": content,
-            "source": "deepseek_ocr_local",
+            "source": "ollama_local",
         }
 
     @staticmethod
@@ -140,7 +140,7 @@ y puede tener un prefijo de letras seguido de numeros."""
         return {
             "success": False,
             "error": message,
-            "source": "deepseek_ocr_local",
+            "source": "ollama_local",
         }
 
     def test_connection(self) -> dict:
