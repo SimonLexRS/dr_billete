@@ -214,15 +214,16 @@ document.addEventListener('DOMContentLoaded', () => {
     // ===================== Results Display =====================
     function showResults(panel, data) {
         if (!data.success) {
-            const isOcrError = data.step_failed === 'ocr' || (data.message && data.message.includes('DeepSeek'));
+            const isOcrError = data.step_failed === 'ocr';
+            const errorMsg = data.message || data.error || 'No se pudo procesar.';
             panel.innerHTML = `
                 <div class="result-card">
                     <div class="result-verdict sospechoso">
                         <div class="verdict-icon">${isOcrError ? '&#128269;' : '&#9888;'}</div>
-                        <div class="verdict-text sospechoso">${isOcrError ? 'OCR NO DISPONIBLE' : 'ERROR'}</div>
-                        <p style="margin-top:0.5rem;color:var(--text-secondary)">${isOcrError ? 'El modelo DeepSeek no soporta analisis de imagenes.' : (data.message || 'No se pudo procesar.')}</p>
+                        <div class="verdict-text sospechoso">${isOcrError ? 'ERROR OCR' : 'ERROR'}</div>
+                        <p style="margin-top:0.5rem;color:var(--text-secondary)">${errorMsg}</p>
                         ${isOcrError ? `
-                        <p style="margin-top:1rem;color:var(--text-secondary);font-size:0.9rem">Ingrese el numero de serie del billete manualmente:</p>
+                        <p style="margin-top:1rem;color:var(--text-secondary);font-size:0.9rem">Puede verificar el billete manualmente:</p>
                         <button onclick="document.querySelector('[data-tab=manual]').click()" style="margin-top:0.8rem;padding:0.8rem 1.5rem;background:var(--yellow);color:var(--bg-primary);border:none;border-radius:8px;font-weight:700;font-size:1rem;cursor:pointer">
                             Verificar Manual
                         </button>` : ''}
