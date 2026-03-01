@@ -76,23 +76,31 @@ y puede tener un prefijo de letras seguido de numeros."""
             )
             response.raise_for_status()
             data = response.json()
+
+            if "error" in data:
+                return self._fallback_error(
+                    "DeepSeek no soporta analisis de imagenes. "
+                    "Use la verificacion manual para ingresar el numero de serie."
+                )
+
             content = data["choices"][0]["message"]["content"]
             return self._parse_response(content)
 
         except requests.exceptions.HTTPError as e:
             status = e.response.status_code if e.response else "unknown"
-            if status == 400:
-                return self._fallback_error(
-                    "El modelo actual no soporta imagenes. "
-                    "Use la verificacion manual ingresando el numero de serie."
-                )
-            return self._fallback_error(f"Error HTTP {status} de la API DeepSeek.")
+            return self._fallback_error(
+                "DeepSeek no soporta analisis de imagenes. "
+                "Use la verificacion manual para ingresar el numero de serie."
+            )
         except requests.exceptions.Timeout:
             return self._fallback_error("Timeout: la API DeepSeek no respondio a tiempo.")
         except requests.exceptions.ConnectionError:
             return self._fallback_error("No se pudo conectar con la API DeepSeek.")
         except Exception as e:
-            return self._fallback_error(f"Error inesperado: {str(e)}")
+            return self._fallback_error(
+                "DeepSeek no soporta analisis de imagenes. "
+                "Use la verificacion manual para ingresar el numero de serie."
+            )
 
     def _parse_response(self, content: str) -> dict:
         """Parsea la respuesta de DeepSeek extrayendo el JSON."""
