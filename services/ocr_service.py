@@ -1,9 +1,8 @@
 """
-Servicio OCR usando DeepSeek-VL2 via SiliconFlow API (compatible con OpenAI).
+Servicio OCR usando DeepSeek-OCR via Ollama local (accesible por Tailscale VPN).
 Envia imagenes de billetes para extraer numero de serie, denominacion y serie.
 """
 
-import base64
 import json
 import re
 import requests
@@ -12,21 +11,14 @@ import config
 
 class OCRService:
     def __init__(self):
-        self.api_key = config.SILICONFLOW_API_KEY
-        self.api_url = config.SILICONFLOW_API_URL
+        self.api_url = config.OLLAMA_API_URL
         self.model = config.VISION_MODEL
 
     def extract_from_image(self, image_base64: str) -> dict:
         """
-        Envia una imagen en base64 a DeepSeek-VL2 para extraer datos del billete.
+        Envia una imagen en base64 a DeepSeek-OCR (Ollama) para extraer datos del billete.
         Retorna: denomination, serial, series, raw_text
         """
-        if not self.api_key:
-            return self._fallback_error(
-                "API key de SiliconFlow no configurada. "
-                "Configure SILICONFLOW_API_KEY en las variables de entorno."
-            )
-
         prompt = """Analiza esta imagen de un billete boliviano y extrae la siguiente informacion.
 Responde UNICAMENTE con un JSON valido, sin texto adicional ni markdown:
 
@@ -42,11 +34,6 @@ Es MUY IMPORTANTE extraer el numero de serie correctamente.
 El numero de serie suele estar impreso en rojo o negro,
 y puede tener un prefijo de letras seguido de numeros."""
 
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-
         mime = "image/jpeg"
         if image_base64[:4] == "iVBO":
             mime = "image/png"
@@ -60,15 +47,14 @@ y puede tener un prefijo de letras seguido de numeros."""
                     "role": "user",
                     "content": [
                         {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:{mime};base64,{image_base64}",
-                                "detail": "high",
-                            },
-                        },
-                        {
                             "type": "text",
                             "text": prompt,
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:{mime};base64,{image_base64}"
+                            },
                         },
                     ],
                 }
@@ -79,14 +65,16 @@ y puede tener un prefijo de letras seguido de numeros."""
 
         try:
             response = requests.post(
-                self.api_url, headers=headers, json=payload, timeout=60
+                self.api_url,
+                json=payload,
+                timeout=120,
             )
             response.raise_for_status()
             data = response.json()
 
             if "error" in data:
                 err_msg = data["error"].get("message", str(data["error"]))
-                return self._fallback_error(f"Error de la API: {err_msg}")
+                return self._fallback_error(f"Error de Ollama: {err_msg}")
 
             content = data["choices"][0]["message"]["content"]
             return self._parse_response(content)
@@ -99,17 +87,23 @@ y puede tener un prefijo de letras seguido de numeros."""
             except Exception:
                 pass
             return self._fallback_error(
-                f"Error HTTP {status} de la API. {detail}"
+                f"Error HTTP {status} de Ollama. {detail}"
             )
         except requests.exceptions.Timeout:
-            return self._fallback_error("Timeout: la API no respondio a tiempo.")
+            return self._fallback_error(
+                "Timeout: el servidor OCR no respondio a tiempo. "
+                "Verifique que Ollama esta corriendo."
+            )
         except requests.exceptions.ConnectionError:
-            return self._fallback_error("No se pudo conectar con la API de SiliconFlow.")
+            return self._fallback_error(
+                "No se pudo conectar con el servidor OCR. "
+                "Verifique que Ollama esta corriendo en la red local."
+            )
         except Exception as e:
             return self._fallback_error(f"Error inesperado: {str(e)}")
 
     def _parse_response(self, content: str) -> dict:
-        """Parsea la respuesta de DeepSeek-VL2 extrayendo el JSON."""
+        """Parsea la respuesta de DeepSeek-OCR extrayendo el JSON."""
         content = content.strip()
 
         json_match = re.search(r"\{[\s\S]*\}", content)
@@ -129,7 +123,7 @@ y puede tener un prefijo de letras seguido de numeros."""
                     "serial": serial,
                     "series": parsed.get("series", ""),
                     "raw_text": parsed.get("raw_text", ""),
-                    "source": "deepseek_vl2_ocr",
+                    "source": "deepseek_ocr_local",
                 }
             except (json.JSONDecodeError, ValueError):
                 pass
@@ -138,7 +132,7 @@ y puede tener un prefijo de letras seguido de numeros."""
             "success": False,
             "error": "No se pudo interpretar la respuesta del OCR.",
             "raw_response": content,
-            "source": "deepseek_vl2_ocr",
+            "source": "deepseek_ocr_local",
         }
 
     @staticmethod
@@ -146,27 +140,17 @@ y puede tener un prefijo de letras seguido de numeros."""
         return {
             "success": False,
             "error": message,
-            "source": "deepseek_vl2_ocr",
+            "source": "deepseek_ocr_local",
         }
 
     def test_connection(self) -> dict:
-        """Prueba la conexion con la API de SiliconFlow/DeepSeek-VL2."""
-        if not self.api_key:
-            return {"connected": False, "error": "SILICONFLOW_API_KEY no configurada"}
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-        payload = {
-            "model": self.model,
-            "messages": [{"role": "user", "content": "Responde solo: OK"}],
-            "max_tokens": 10,
-        }
+        """Prueba la conexion con Ollama."""
         try:
-            resp = requests.post(
-                self.api_url, headers=headers, json=payload, timeout=10
-            )
+            # Ollama health check
+            base_url = self.api_url.rsplit("/v1/", 1)[0]
+            resp = requests.get(f"{base_url}/api/version", timeout=5)
             resp.raise_for_status()
-            return {"connected": True, "model": self.model}
+            version = resp.json().get("version", "unknown")
+            return {"connected": True, "model": self.model, "ollama_version": version}
         except Exception as e:
             return {"connected": False, "error": str(e)}
