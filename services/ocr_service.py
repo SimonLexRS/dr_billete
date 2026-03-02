@@ -11,17 +11,19 @@ import config
 
 # Mapeo de texto a denominacion
 DENOM_MAP = {
-    "diez": 10, "10": 10,
-    "veinte": 20, "20": 20,
-    "cincuenta": 50, "50": 50,
-    "cien": 100, "100": 100,
-    "doscientos": 200, "200": 200,
+    "diez": 10,
+    "veinte": 20,
+    "cincuenta": 50,
+    "cien": 100,
+    "doscientos": 200,
 }
 
 
 class OCRService:
     def __init__(self):
-        self.api_url = config.OLLAMA_API_URL
+        # Usar API nativa de Ollama para mejor soporte de vision
+        base = config.OLLAMA_API_URL.rsplit("/v1/", 1)[0]
+        self.api_url = f"{base}/api/chat"
         self.model = config.VISION_MODEL
 
     def extract_from_image(self, image_base64: str) -> dict:
@@ -29,35 +31,22 @@ class OCRService:
         Envia una imagen en base64 a Ollama para extraer datos del billete.
         Retorna: denomination, serial, series, raw_text
         """
-        prompt = "Text Recognition: Lee todo el texto visible en esta imagen de un billete boliviano. Incluye todos los numeros y letras que veas."
-
-        mime = "image/jpeg"
-        if image_base64[:4] == "iVBO":
-            mime = "image/png"
-        elif image_base64[:4] == "AAAA":
-            mime = "image/webp"
+        prompt = "Lee todo el texto visible en esta imagen de un billete boliviano. Incluye todos los numeros, letras y palabras que puedas leer."
 
         payload = {
             "model": self.model,
             "messages": [
                 {
                     "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": prompt,
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:{mime};base64,{image_base64}"
-                            },
-                        },
-                    ],
+                    "content": prompt,
+                    "images": [image_base64],
                 }
             ],
-            "max_tokens": 800,
-            "temperature": 0.1,
+            "stream": False,
+            "options": {
+                "temperature": 0.1,
+                "num_predict": 800,
+            },
         }
 
         try:
@@ -70,17 +59,22 @@ class OCRService:
             data = response.json()
 
             if "error" in data:
-                err_msg = data["error"].get("message", str(data["error"]))
+                err_msg = data["error"] if isinstance(data["error"], str) else data["error"].get("message", str(data["error"]))
                 return self._fallback_error(f"Error de Ollama: {err_msg}")
 
-            content = data["choices"][0]["message"]["content"]
+            content = data.get("message", {}).get("content", "")
+            if not content:
+                return self._fallback_error("El modelo OCR no devolvio respuesta.")
+
             return self._parse_response(content)
 
         except requests.exceptions.HTTPError as e:
             status = e.response.status_code if e.response else "unknown"
             detail = ""
             try:
-                detail = e.response.json().get("error", {}).get("message", "")
+                detail = e.response.json().get("error", "")
+                if isinstance(detail, dict):
+                    detail = detail.get("message", "")
             except Exception:
                 pass
             return self._fallback_error(
@@ -134,64 +128,86 @@ class OCRService:
 
         return {
             "success": False,
-            "error": "No se pudo interpretar la respuesta del OCR.",
+            "error": f"No se pudo extraer datos del billete. Texto OCR: {content[:300]}",
             "raw_response": content,
             "source": "ollama_local",
         }
 
     def _extract_from_text(self, text: str) -> dict:
         """Extrae denominacion, serial y serie del texto crudo usando regex."""
+        text_upper = text.upper()
         text_lower = text.lower()
 
         # Extraer denominacion
         denomination = None
-        # Buscar "Bs. 20", "Bs 50", "Bs.20", etc.
-        bs_match = re.search(r'bs\.?\s*(\d{2,3})', text_lower)
+
+        # Buscar "Bs. 20", "Bs 50", "Bs.20", "BS 10", etc.
+        bs_match = re.search(r'BS\.?\s*(\d{2,3})', text_upper)
         if bs_match:
             val = int(bs_match.group(1))
             if val in (10, 20, 50, 100, 200):
                 denomination = val
 
-        # Buscar palabras: "veinte bolivianos", "cincuenta", etc.
+        # Buscar "BOLIVIANOS" con numero cercano
+        if not denomination:
+            boliv_match = re.search(r'(\d{2,3})\s*BOLIVIANO', text_upper)
+            if boliv_match:
+                val = int(boliv_match.group(1))
+                if val in (10, 20, 50, 100, 200):
+                    denomination = val
+
+        # Buscar palabras: "veinte bolivianos", "cincuenta", "diez", etc.
         if not denomination:
             for word, val in DENOM_MAP.items():
-                if word in text_lower and not word.isdigit():
+                if word in text_lower:
                     denomination = val
                     break
 
-        # Buscar numeros sueltos que coincidan con denominaciones
+        # Buscar numeros que coincidan con denominaciones (priorizar mayores)
         if not denomination:
             for num_str in ("200", "100", "50", "20", "10"):
-                if num_str in text:
+                # Buscar como numero aislado (no parte de serial)
+                pattern = r'(?<!\d)' + num_str + r'(?!\d{2,})'
+                if re.search(pattern, text):
                     denomination = int(num_str)
                     break
 
-        # Extraer serie (letra sola antes de numeros, ej: "B 097000123")
+        # Extraer serie (letra sola antes de numeros, ej: "B 097000123" o "B097000123")
         series = ""
-        series_match = re.search(r'\b([A-Z])\s+(\d{6,})', text)
+        series_match = re.search(r'\b([A-Z])\s*(\d{6,})', text_upper)
         if series_match:
             series = series_match.group(1)
 
-        # Extraer numero de serie (secuencia larga de digitos, 6-10 digitos)
+        # Extraer numero de serie
         serial = None
-        # Patron 1: letra + espacio + digitos (ej: "B 097000123")
-        serial_match = re.search(r'[A-Z]\s+(\d{6,10})', text)
+
+        # Patron 1: letra + espacio/sin espacio + digitos (ej: "B 097000123", "B097000123")
+        serial_match = re.search(r'[A-Z]\s*(\d{6,10})', text_upper)
         if serial_match:
             serial = int(serial_match.group(1))
 
-        # Patron 2: secuencia de digitos larga sin contexto
+        # Patron 2: secuencia de digitos larga (6-10 digitos)
         if not serial:
             all_numbers = re.findall(r'\d{6,10}', text)
-            # Filtrar los que no son anos (2026, etc.)
             candidates = [int(n) for n in all_numbers if len(n) >= 6]
             if candidates:
                 serial = candidates[0]
 
         # Patron 3: digitos con separadores (ej: "097.000.123" o "097 000 123")
         if not serial:
-            spaced = re.search(r'(\d{2,3}[\s.]?\d{3}[\s.]?\d{3})', text)
+            spaced = re.search(r'(\d{2,3}[\s.\-]?\d{3}[\s.\-]?\d{3})', text)
             if spaced:
-                serial = int(re.sub(r'[\s.]', '', spaced.group(1)))
+                cleaned = re.sub(r'[\s.\-]', '', spaced.group(1))
+                if len(cleaned) >= 6:
+                    serial = int(cleaned)
+
+        # Patron 4: Numeros de 5+ digitos (menos estricto)
+        if not serial:
+            nums = re.findall(r'\d{5,}', text)
+            # Excluir anos y numeros cortos
+            candidates = [int(n) for n in nums if int(n) > 99999]
+            if candidates:
+                serial = candidates[0]
 
         if denomination and serial:
             return {
@@ -216,7 +232,7 @@ class OCRService:
     def test_connection(self) -> dict:
         """Prueba la conexion con Ollama."""
         try:
-            base_url = self.api_url.rsplit("/v1/", 1)[0]
+            base_url = self.api_url.rsplit("/api/", 1)[0]
             resp = requests.get(f"{base_url}/api/version", timeout=5)
             resp.raise_for_status()
             version = resp.json().get("version", "unknown")
