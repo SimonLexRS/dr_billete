@@ -1,6 +1,7 @@
 """
-Servicio OCR usando Ollama local (accesible por Tailscale VPN).
+Servicio OCR usando LM Studio REST API nativo (accesible por Tailscale VPN).
 Envia imagenes de billetes para extraer numero de serie, denominacion y serie.
+Endpoint: /api/v1/chat
 """
 
 import json
@@ -30,31 +31,24 @@ PROMPT = (
 
 class OCRService:
     def __init__(self):
-        # Usar API nativa de Ollama (/api/chat) que procesa imagenes correctamente
-        base = config.OLLAMA_API_URL.rsplit("/v1/", 1)[0]
-        self.api_url = f"{base}/api/chat"
+        self.api_url = config.LM_STUDIO_API_URL
         self.model = config.VISION_MODEL
 
     def extract_from_image(self, image_base64: str) -> dict:
         """
-        Envia una imagen en base64 a Ollama para extraer datos del billete.
+        Envia una imagen en base64 a LM Studio REST API nativo (/api/v1/chat).
         Usa streaming para mantener la conexion viva a traves de Tailscale/Docker.
         Retorna: denomination, serial, series, raw_text
         """
         payload = {
             "model": self.model,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": PROMPT,
-                    "images": [image_base64],
-                }
+            "input": [
+                {"type": "image", "data_url": f"data:image/jpeg;base64,{image_base64}"},
+                {"type": "text", "content": PROMPT},
             ],
+            "temperature": 0.1,
+            "max_output_tokens": 300,
             "stream": True,
-            "options": {
-                "temperature": 0.1,
-                "num_predict": 300,
-            },
         }
 
         try:
@@ -66,23 +60,42 @@ class OCRService:
             )
             response.raise_for_status()
 
-            # Acumular respuesta streamed
+            # Acumular respuesta streamed (formato SSE nativo de LM Studio)
+            # Eventos: chat.start, prompt_processing.*, message.start,
+            #          message.delta (con content), message.end, chat.end
             content = ""
             for line in response.iter_lines():
                 if not line:
                     continue
+
+                line_str = line.decode("utf-8") if isinstance(line, bytes) else line
+
+                # Strip SSE prefix "data: "
+                if line_str.startswith("data: "):
+                    line_str = line_str[6:]
+                elif line_str.startswith("event: "):
+                    continue  # Skip event type lines
+
+                # End of stream signal
+                if line_str.strip() == "[DONE]":
+                    break
+
                 try:
-                    chunk = json.loads(line)
+                    chunk = json.loads(line_str)
                 except json.JSONDecodeError:
                     continue
 
                 if "error" in chunk:
-                    err_msg = chunk["error"] if isinstance(chunk["error"], str) else str(chunk["error"])
-                    return self._fallback_error(f"Error de Ollama: {err_msg}")
+                    err_msg = chunk["error"]
+                    if isinstance(err_msg, dict):
+                        err_msg = err_msg.get("message", str(err_msg))
+                    return self._fallback_error(f"Error de LM Studio: {err_msg}")
 
-                content += chunk.get("message", {}).get("content", "")
-
-                if chunk.get("done"):
+                # message.delta chunks tienen {type: "message.delta", content: "..."}
+                chunk_type = chunk.get("type", "")
+                if chunk_type == "message.delta":
+                    content += chunk.get("content", "")
+                elif chunk_type == "chat.end":
                     break
 
             if not content:
@@ -100,17 +113,17 @@ class OCRService:
             except Exception:
                 pass
             return self._fallback_error(
-                f"Error HTTP {status} de Ollama. {detail}"
+                f"Error HTTP {status} de LM Studio. {detail}"
             )
         except requests.exceptions.Timeout:
             return self._fallback_error(
                 "Timeout: el servidor OCR no respondio a tiempo. "
-                "Verifique que Ollama esta corriendo."
+                "Verifique que LM Studio esta corriendo."
             )
         except requests.exceptions.ConnectionError:
             return self._fallback_error(
                 "No se pudo conectar con el servidor OCR. "
-                "Verifique que Ollama esta corriendo en la red local."
+                "Verifique que LM Studio esta corriendo en la red local."
             )
         except Exception as e:
             return self._fallback_error(f"Error inesperado: {str(e)}")
@@ -136,7 +149,7 @@ class OCRService:
                     "serial": serial,
                     "series": series,
                     "raw_text": content,
-                    "source": "ollama_local",
+                    "source": "lm_studio",
                 }
 
         # Intento 2: buscar JSON en la respuesta
@@ -158,7 +171,7 @@ class OCRService:
                         "serial": serial,
                         "series": parsed.get("series", ""),
                         "raw_text": parsed.get("raw_text", content),
-                        "source": "ollama_local",
+                        "source": "lm_studio",
                     }
             except (json.JSONDecodeError, ValueError):
                 pass
@@ -172,7 +185,7 @@ class OCRService:
             "success": False,
             "error": f"OCR leyo: {content[:200]}",
             "raw_response": content,
-            "source": "ollama_local",
+            "source": "lm_studio",
         }
 
     def _extract_from_text(self, text: str) -> dict:
@@ -252,7 +265,7 @@ class OCRService:
                 "serial": serial,
                 "series": series,
                 "raw_text": text,
-                "source": "ollama_local",
+                "source": "lm_studio",
             }
 
         return None
@@ -262,16 +275,22 @@ class OCRService:
         return {
             "success": False,
             "error": message,
-            "source": "ollama_local",
+            "source": "lm_studio",
         }
 
     def test_connection(self) -> dict:
-        """Prueba la conexion con Ollama."""
+        """Prueba la conexion con LM Studio REST API nativo."""
         try:
             base_url = self.api_url.rsplit("/api/", 1)[0]
-            resp = requests.get(f"{base_url}/api/version", timeout=5)
+            resp = requests.get(f"{base_url}/api/v1/models", timeout=5)
             resp.raise_for_status()
-            version = resp.json().get("version", "unknown")
-            return {"connected": True, "model": self.model, "ollama_version": version}
+            data = resp.json()
+            models = data.get("models", data.get("data", []))
+            model_ids = [m.get("key", m.get("id", "unknown")) for m in models]
+            return {
+                "connected": True,
+                "model": self.model,
+                "available_models": model_ids,
+            }
         except Exception as e:
             return {"connected": False, "error": str(e)}
