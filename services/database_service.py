@@ -54,6 +54,12 @@ class DatabaseService:
                     ON scans(denomination);
             """)
             conn.commit()
+
+            # Migration: add batch_id column if missing
+            columns = [row[1] for row in conn.execute("PRAGMA table_info(scans)").fetchall()]
+            if "batch_id" not in columns:
+                conn.execute("ALTER TABLE scans ADD COLUMN batch_id TEXT DEFAULT ''")
+                conn.commit()
         finally:
             conn.close()
 
@@ -134,18 +140,19 @@ class DatabaseService:
             conn.close()
 
     def record_scan(self, denomination, serial, series, verdict, risk_level,
-                    confidence, method, raw_ocr_text=""):
+                    confidence, method, raw_ocr_text="", batch_id=""):
         conn = self._get_conn()
         try:
             conn.execute("""
                 INSERT INTO scans
                     (timestamp, denomination, serial, series, verdict,
-                     risk_level, confidence, method, raw_ocr_text)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     risk_level, confidence, method, raw_ocr_text, batch_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 datetime.now(timezone.utc).isoformat(),
                 denomination, serial, series or "",
                 verdict, risk_level, confidence, method, raw_ocr_text or "",
+                batch_id or "",
             ))
             conn.commit()
         finally:

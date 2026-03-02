@@ -393,15 +393,68 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        const v = data.verdict;
+        const banknotes = data.banknotes || [data];
+        const isMulti = banknotes.length > 1;
+        let html = '';
+
+        // Batch summary for multi-banknote
+        if (isMulti && data.summary) {
+            const s = data.summary;
+            html += `<div class="batch-summary">
+                <h3>${s.total} billetes detectados</h3>
+                <div class="batch-counts">
+                    ${s.legal > 0 ? `<span class="batch-count legal">${s.legal} Legal${s.legal > 1 ? 'es' : ''}</span>` : ''}
+                    ${s.illegal > 0 ? `<span class="batch-count ilegal">${s.illegal} Ilegal${s.illegal > 1 ? 'es' : ''}</span>` : ''}
+                    ${s.suspicious > 0 ? `<span class="batch-count sospechoso">${s.suspicious} Sospechoso${s.suspicious > 1 ? 's' : ''}</span>` : ''}
+                </div>
+            </div>`;
+        }
+
+        // Render each banknote card
+        banknotes.forEach((bn, idx) => {
+            html += buildBanknoteCard(bn, idx, banknotes.length, container);
+        });
+
+        // Share section (once at the end)
+        const firstBn = banknotes[0];
+        const shareText = isMulti
+            ? `Verifique ${banknotes.length} billetes: ${data.summary.illegal} ilegales, ${data.summary.legal} legales. Dr. Billetes BCB CP9/2026:`
+            : firstBn.verdict === 'ILEGAL'
+            ? `Mi billete de Bs${firstBn.denomination} (serie ${formatNumber(firstBn.serial)}) es ILEGAL segun el BCB CP9/2026. Verifica tus billetes en:`
+            : firstBn.verdict === 'SOSPECHOSO'
+            ? `Mi billete de Bs${firstBn.denomination} salio SOSPECHOSO. Verifica tus billetes bolivianos aqui:`
+            : `Mi billete de Bs${firstBn.denomination} es LEGAL. Verifica tus billetes bolivianos aqui:`;
+        const shareUrl = 'https://dr.sentinel-ia.com';
+
+        html += `
+            <div class="share-section">
+                <p class="share-label">Compartir resultado</p>
+                <div class="share-buttons">
+                    <a class="share-btn whatsapp" href="https://wa.me/?text=${encodeURIComponent(shareText + ' ' + shareUrl)}" target="_blank" rel="noopener">WhatsApp</a>
+                    <a class="share-btn" href="https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}&quote=${encodeURIComponent(shareText)}" target="_blank" rel="noopener">Facebook</a>
+                    <a class="share-btn" href="https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(shareUrl)}" target="_blank" rel="noopener">X</a>
+                    <button class="share-btn" onclick="navigator.clipboard.writeText('${shareText.replace(/'/g, "\\'")} ${shareUrl}').then(()=>this.textContent='Copiado!')">Copiar</button>
+                </div>
+            </div>
+            <button class="scan-another-btn" onclick="resetScan('${container ? container.id : ''}')">
+                &#8592; Escanear otro billete
+            </button>`;
+
+        panel.innerHTML = html;
+        scrollToResults(panel);
+    }
+
+    function buildBanknoteCard(bn, index, total, container) {
+        const isMulti = total > 1;
+        const v = bn.verdict;
         const vClass = v === 'ILEGAL' ? 'ilegal' : v === 'SOSPECHOSO' ? 'sospechoso' : 'legal';
         const vIcon = v === 'ILEGAL' ? '&#10060;' : v === 'SOSPECHOSO' ? '&#9888;' : '&#9989;';
         const confColor = v === 'ILEGAL' ? 'var(--danger)' : v === 'SOSPECHOSO' ? 'var(--warning)' : 'var(--success)';
-        const confPct = Math.round(data.confidence * 100);
+        const confPct = Math.round(bn.confidence * 100);
 
         let rangeInfo = '';
-        if (data.db_check && data.db_check.matching_range) {
-            const r = data.db_check.matching_range;
+        if (bn.db_check && bn.db_check.matching_range) {
+            const r = bn.db_check.matching_range;
             rangeInfo = `
                 <div class="detail-row">
                     <span class="detail-label">Rango ilegal</span>
@@ -410,61 +463,42 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         let nnInfo = '';
-        if (data.nn_prediction) {
-            const nn = data.nn_prediction;
-            if (nn.model_trained) {
-                const nnPct = Math.round(nn.probability * 100);
-                const nnColor = nnPct > 70 ? 'var(--danger)' : nnPct > 40 ? 'var(--warning)' : 'var(--success)';
-                nnInfo = `
-                    <div class="detail-row">
-                        <span class="detail-label">Red Neuronal</span>
-                        <span class="detail-value">
-                            ${nnPct}% ilegal
-                            <span class="confidence-bar"><span class="confidence-fill" style="width:${nnPct}%;background:${nnColor}"></span></span>
-                        </span>
-                    </div>`;
-            }
-        }
-
-        let ocrInfo = '';
-        if (data.ocr_result) {
-            ocrInfo = `
+        if (bn.nn_prediction && bn.nn_prediction.model_trained) {
+            const nnPct = Math.round(bn.nn_prediction.probability * 100);
+            const nnColor = nnPct > 70 ? 'var(--danger)' : nnPct > 40 ? 'var(--warning)' : 'var(--success)';
+            nnInfo = `
                 <div class="detail-row">
-                    <span class="detail-label">Fuente OCR</span>
-                    <span class="detail-value">OCR Sentinel AI</span>
+                    <span class="detail-label">Red Neuronal</span>
+                    <span class="detail-value">
+                        ${nnPct}% ilegal
+                        <span class="confidence-bar"><span class="confidence-fill" style="width:${nnPct}%;background:${nnColor}"></span></span>
+                    </span>
                 </div>`;
         }
 
-        // Build share message
-        const shareText = v === 'ILEGAL'
-            ? `Mi billete de Bs${data.denomination} (serie ${formatNumber(data.serial)}) es ILEGAL segun el BCB CP9/2026. Verifica tus billetes en:`
-            : v === 'SOSPECHOSO'
-            ? `Mi billete de Bs${data.denomination} salio SOSPECHOSO. Verifica tus billetes bolivianos aqui:`
-            : `Mi billete de Bs${data.denomination} es LEGAL. Verifica tus billetes bolivianos aqui:`;
-        const shareUrl = 'https://dr.sentinel-ia.com';
-
-        panel.innerHTML = `
-            <div class="result-card">
+        return `
+            <div class="result-card${isMulti ? ' compact' : ''}">
+                ${isMulti ? `<span class="banknote-index">Billete ${index + 1} de ${total}</span>` : ''}
                 <div class="result-verdict ${vClass}">
                     <div class="verdict-icon">${vIcon}</div>
                     <div class="verdict-text ${vClass}">${v}</div>
                     <p style="margin-top:0.5rem;font-size:0.85rem;color:var(--text-secondary)">
-                        ${data.db_check ? data.db_check.message : ''}
+                        ${bn.db_check ? bn.db_check.message : ''}
                     </p>
                 </div>
                 <div class="result-details">
                     <div class="detail-row">
                         <span class="detail-label">Denominacion</span>
-                        <span class="detail-value" style="color:var(--red)">Bs ${data.denomination}</span>
+                        <span class="detail-value" style="color:var(--red)">Bs ${bn.denomination}</span>
                     </div>
                     <div class="detail-row">
                         <span class="detail-label">N&ordm; de Serie</span>
-                        <span class="detail-value">${formatNumber(data.serial)}</span>
+                        <span class="detail-value">${formatNumber(bn.serial)}</span>
                     </div>
-                    ${data.series ? `<div class="detail-row"><span class="detail-label">Serie</span><span class="detail-value">${data.series}</span></div>` : ''}
+                    ${bn.series ? `<div class="detail-row"><span class="detail-label">Serie</span><span class="detail-value">${bn.series}</span></div>` : ''}
                     <div class="detail-row">
                         <span class="detail-label">Nivel de Riesgo</span>
-                        <span class="detail-value" style="color:${confColor}">${data.risk_level}</span>
+                        <span class="detail-value" style="color:${confColor}">${bn.risk_level}</span>
                     </div>
                     <div class="detail-row">
                         <span class="detail-label">Confianza</span>
@@ -475,27 +509,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                     ${rangeInfo}
                     ${nnInfo}
-                    ${ocrInfo}
+                    ${!isMulti && bn.ocr_result ? `<div class="detail-row"><span class="detail-label">Fuente OCR</span><span class="detail-value">OCR Sentinel AI</span></div>` : ''}
                     <div class="detail-row">
                         <span class="detail-label">Referencia</span>
-                        <span class="detail-value" style="font-size:0.75rem">${data.comunicado || 'CP9/2026'}</span>
+                        <span class="detail-value" style="font-size:0.75rem">${bn.comunicado || 'CP9/2026'}</span>
                     </div>
                 </div>
-                <div class="share-section">
-                    <p class="share-label">Compartir resultado</p>
-                    <div class="share-buttons">
-                        <a class="share-btn whatsapp" href="https://wa.me/?text=${encodeURIComponent(shareText + ' ' + shareUrl)}" target="_blank" rel="noopener">WhatsApp</a>
-                        <a class="share-btn" href="https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}&quote=${encodeURIComponent(shareText)}" target="_blank" rel="noopener">Facebook</a>
-                        <a class="share-btn" href="https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(shareUrl)}" target="_blank" rel="noopener">X</a>
-                        <button class="share-btn" onclick="navigator.clipboard.writeText('${shareText} ${shareUrl}').then(()=>this.textContent='Copiado!')">Copiar</button>
-                    </div>
-                </div>
-                <button class="scan-another-btn" onclick="resetScan('${container ? container.id : ''}')">
-                    &#8592; Escanear otro billete
-                </button>
             </div>`;
-
-        scrollToResults(panel);
     }
 
     function scrollToResults(panel) {

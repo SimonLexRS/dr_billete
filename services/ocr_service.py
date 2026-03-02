@@ -1,6 +1,7 @@
 """
 Servicio OCR usando LM Studio REST API nativo (accesible por Tailscale VPN).
 Envia imagenes de billetes para extraer numero de serie, denominacion y serie.
+Soporta multiples billetes en una sola imagen.
 Endpoint: /api/v1/chat
 """
 
@@ -25,14 +26,15 @@ DENOM_MAP = {
 }
 
 PROMPT = (
-    "Esta es una imagen de un billete boliviano. "
-    "La imagen puede estar rotada o inclinada. "
-    "Identifica la denominacion (10, 20, 50, 100 o 200 bolivianos), "
+    "Esta imagen contiene uno o mas billetes bolivianos. "
+    "Para CADA billete visible, identifica la denominacion (10, 20, 50, 100 o 200), "
     "el numero de serie (6-10 digitos) y la letra de serie. "
-    "Responde UNICAMENTE con:\n"
+    "Responde con este formato para CADA billete:\n"
+    "---BILLETE---\n"
     "Denominacion: [numero]\n"
     "Serie: [letra]\n"
-    "Serial: [numero]"
+    "Serial: [numero]\n"
+    "Si solo hay un billete, usa el mismo formato."
 )
 
 FALLBACK_PROMPT = "Lee todo el texto visible en esta imagen"
@@ -59,42 +61,51 @@ class OCRService:
         except Exception:
             return image_base64
 
-    def extract_from_image(self, image_base64: str) -> dict:
+    def extract_from_image(self, image_base64: str) -> list:
         """
         Envia una imagen en base64 a LM Studio REST API nativo (/api/v1/chat).
-        Usa el modelo principal (glm-4.6v-flash) con prompt estructurado.
-        Si falla, intenta con fallback (glm-ocr) + prompt simple + regex.
-        Retorna: denomination, serial, series, raw_text
+        Soporta multiples billetes en una sola imagen.
+        Retorna: lista de dicts con denomination, serial, series, raw_text
         """
         image_base64 = self._normalize_orientation(image_base64)
         print(f"[OCR] Image size: {len(image_base64)} bytes base64")
 
         # Intento 1: modelo principal con prompt estructurado
         print(f"[OCR] Trying primary model: {self.model}")
-        result = self._call_vision_model(image_base64, self.model, PROMPT)
-        if result.get("success"):
-            return result
+        results = self._call_vision_model(image_base64, self.model, PROMPT)
+        if results:
+            successful = [r for r in results if r.get("success")]
+            if successful:
+                print(f"[OCR] Primary model found {len(successful)} banknote(s)")
+                return successful
 
-        print(f"[OCR] Primary model failed: {result.get('error', 'unknown')}")
+        print(f"[OCR] Primary model failed or found 0 banknotes")
         # Intento 2: fallback con modelo OCR simple + regex parsing
         if self.fallback_model != self.model:
-            fallback_result = self._call_vision_model(
+            fallback_results = self._call_vision_model(
                 image_base64, self.fallback_model, FALLBACK_PROMPT
             )
-            if fallback_result.get("success"):
-                return fallback_result
-            # Si el fallback obtuvo texto crudo, intentar extraer con regex
-            raw = fallback_result.get("raw_response", "")
-            if raw:
-                extracted = self._extract_from_text(raw)
-                if extracted:
-                    return extracted
+            if fallback_results:
+                successful = [r for r in fallback_results if r.get("success")]
+                if successful:
+                    return successful
+                # Intentar extraer del texto crudo del primer resultado
+                raw = fallback_results[0].get("raw_response", "")
+                if raw:
+                    extracted = self._extract_all_from_text(raw)
+                    if extracted:
+                        return extracted
 
-        return result  # Retornar el error del intento principal
+        # Retornar error
+        error_msg = "No se pudo procesar la imagen."
+        if results and not any(r.get("success") for r in results):
+            error_msg = results[0].get("error", error_msg)
+        return [{"success": False, "error": error_msg, "source": "lm_studio"}]
 
     def _call_vision_model(self, image_base64: str, model: str,
-                           prompt: str) -> dict:
-        """Llama a un modelo de vision en LM Studio y parsea la respuesta."""
+                           prompt: str) -> list:
+        """Llama a un modelo de vision en LM Studio y parsea la respuesta.
+        Retorna lista de resultados (uno por billete detectado)."""
         payload = {
             "model": model,
             "input": [
@@ -102,7 +113,7 @@ class OCRService:
                 {"type": "text", "content": prompt},
             ],
             "temperature": 0.1,
-            "max_output_tokens": 500,
+            "max_output_tokens": config.MAX_OUTPUT_TOKENS,
             "stream": True,
         }
 
@@ -139,7 +150,7 @@ class OCRService:
                     err_msg = chunk["error"]
                     if isinstance(err_msg, dict):
                         err_msg = err_msg.get("message", str(err_msg))
-                    return self._fallback_error(f"Error de LM Studio: {err_msg}")
+                    return [self._fallback_error(f"Error de LM Studio: {err_msg}")]
 
                 chunk_type = chunk.get("type", "")
                 if chunk_type == "message.delta":
@@ -148,9 +159,9 @@ class OCRService:
                     break
 
             if not content:
-                return self._fallback_error("El modelo OCR no devolvio respuesta.")
+                return [self._fallback_error("El modelo OCR no devolvio respuesta.")]
 
-            return self._parse_response(content)
+            return self._parse_multi_response(content)
 
         except requests.exceptions.HTTPError as e:
             status = e.response.status_code if e.response else "unknown"
@@ -161,28 +172,72 @@ class OCRService:
                     detail = detail.get("message", "")
             except Exception:
                 pass
-            return self._fallback_error(
+            return [self._fallback_error(
                 f"Error HTTP {status} de LM Studio. {detail}"
-            )
+            )]
         except requests.exceptions.Timeout:
-            return self._fallback_error(
+            return [self._fallback_error(
                 "Timeout: el servidor OCR no respondio a tiempo. "
                 "Verifique que LM Studio esta corriendo."
-            )
+            )]
         except requests.exceptions.ConnectionError:
-            return self._fallback_error(
+            return [self._fallback_error(
                 "No se pudo conectar con el servidor OCR. "
                 "Verifique que LM Studio esta corriendo en la red local."
-            )
+            )]
         except Exception as e:
-            return self._fallback_error(f"Error inesperado: {str(e)}")
+            return [self._fallback_error(f"Error inesperado: {str(e)}")]
 
-    def _parse_response(self, content: str) -> dict:
-        """Parsea la respuesta del modelo."""
+    def _parse_multi_response(self, content: str) -> list:
+        """Parsea respuesta que puede contener multiples billetes separados por ---BILLETE---."""
         # Limpiar tags especiales de glm-4v-flash
         content = re.sub(r'<\|[^|]*\|>', '', content).strip()
 
-        # Intento 1: buscar formato estructurado "Denominacion: X, Serie: Y, Serial: Z"
+        # Split por delimitador
+        blocks = re.split(r'---\s*BILLETE\s*---', content)
+        blocks = [b.strip() for b in blocks if b.strip()]
+
+        if not blocks:
+            # Sin delimitadores: tratar como billete unico
+            result = self._parse_single_block(content)
+            if result:
+                return [result]
+            # Ultimo recurso: regex sobre texto completo
+            return self._extract_all_from_text(content) or [{
+                "success": False,
+                "error": f"OCR leyo: {content[:200]}",
+                "raw_response": content,
+                "source": "lm_studio",
+            }]
+
+        results = []
+        seen_serials = set()
+        for block in blocks:
+            parsed = self._parse_single_block(block)
+            if parsed and parsed.get("success"):
+                serial = parsed.get("serial")
+                if serial and serial not in seen_serials:
+                    seen_serials.add(serial)
+                    results.append(parsed)
+
+        if results:
+            return results
+
+        # Fallback: extraer todo con regex
+        all_extracted = self._extract_all_from_text(content)
+        if all_extracted:
+            return all_extracted
+
+        return [{
+            "success": False,
+            "error": f"OCR leyo: {content[:200]}",
+            "raw_response": content,
+            "source": "lm_studio",
+        }]
+
+    def _parse_single_block(self, content: str) -> dict:
+        """Parsea un bloque de texto para un solo billete."""
+        # Intento 1: formato estructurado "Denominacion: X, Serie: Y, Serial: Z"
         denom_match = re.search(r'[Dd]enominaci[oó]n:\s*(\d{2,3})', content)
         serial_match = re.search(r'[Ss]erial:\s*(\d{6,10})', content)
         series_match = re.search(r'[Ss]erie:\s*([A-Za-z])', content)
@@ -226,17 +281,12 @@ class OCRService:
             except (json.JSONDecodeError, ValueError):
                 pass
 
-        # Intento 3: extraer datos con regex del texto crudo
+        # Intento 3: regex del texto
         result = self._extract_from_text(content)
         if result:
             return result
 
-        return {
-            "success": False,
-            "error": f"OCR leyo: {content[:200]}",
-            "raw_response": content,
-            "source": "lm_studio",
-        }
+        return None
 
     def _extract_from_text(self, text: str) -> dict:
         """Extrae denominacion, serial y serie del texto crudo usando regex."""
@@ -317,6 +367,69 @@ class OCRService:
                 "raw_text": text,
                 "source": "lm_studio",
             }
+
+        return None
+
+    def _extract_all_from_text(self, text: str) -> list:
+        """Extrae TODOS los billetes posibles del texto crudo usando regex."""
+        text_upper = text.upper()
+
+        # Buscar todos los pares serie+serial
+        all_matches = re.findall(r'\b([A-Z])\s*(\d{6,10})\b', text_upper)
+        if not all_matches:
+            # Buscar solo numeros largos
+            all_numbers = re.findall(r'\b(\d{6,10})\b', text)
+            if not all_numbers:
+                return []
+            all_matches = [("", n) for n in all_numbers]
+
+        # Extraer denominacion del texto (sera la misma para todos si solo hay una)
+        denomination = self._extract_denomination(text)
+
+        results = []
+        seen_serials = set()
+        for series, serial_str in all_matches:
+            serial = int(serial_str)
+            if serial in seen_serials:
+                continue
+            seen_serials.add(serial)
+            if denomination:
+                results.append({
+                    "success": True,
+                    "denomination": denomination,
+                    "serial": serial,
+                    "series": series,
+                    "raw_text": text,
+                    "source": "lm_studio",
+                })
+
+        return results if results else []
+
+    def _extract_denomination(self, text: str) -> int:
+        """Extrae la denominacion del texto."""
+        text_upper = text.upper()
+        text_lower = text.lower()
+
+        bs_match = re.search(r'BS\.?\s*(\d{2,3})', text_upper)
+        if bs_match:
+            val = int(bs_match.group(1))
+            if val in (10, 20, 50, 100, 200):
+                return val
+
+        boliv_match = re.search(r'(\d{2,3})\s*BOLIVIANO', text_upper)
+        if boliv_match:
+            val = int(boliv_match.group(1))
+            if val in (10, 20, 50, 100, 200):
+                return val
+
+        for word, val in DENOM_MAP.items():
+            if word in text_lower:
+                return val
+
+        for num_str in ("200", "100", "50", "20", "10"):
+            pattern = r'(?<!\d)' + num_str + r'(?!\d)'
+            if re.search(pattern, text):
+                return int(num_str)
 
         return None
 

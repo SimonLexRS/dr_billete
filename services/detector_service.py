@@ -5,6 +5,7 @@ para generar un veredicto completo sobre un billete.
 
 import json
 import os
+import uuid
 
 from models.bcb_database import BCBDatabase
 from models.neural_network import NeuralNetwork
@@ -56,47 +57,79 @@ class DetectorService:
         self._save_stats()
 
     def scan_image(self, image_base64: str) -> dict:
-        """Flujo completo: imagen -> OCR -> verificacion -> resultado."""
-        ocr_result = self.ocr.extract_from_image(image_base64)
+        """Flujo completo: imagen -> OCR -> verificacion -> resultado.
+        Soporta multiples billetes en una sola imagen."""
+        ocr_results = self.ocr.extract_from_image(image_base64)
 
-        if not ocr_result.get("success"):
+        # Filtrar resultados exitosos
+        successful = [r for r in ocr_results if r.get("success")]
+
+        if not successful:
+            first = ocr_results[0] if ocr_results else {}
             return {
                 "success": False,
                 "step_failed": "ocr",
-                "ocr_result": ocr_result,
-                "message": ocr_result.get(
+                "ocr_result": first,
+                "message": first.get(
                     "error", "No se pudo procesar la imagen."
                 ),
             }
 
-        denomination = ocr_result.get("denomination")
-        serial = ocr_result.get("serial")
+        batch_id = str(uuid.uuid4())[:8]
+        banknotes = []
 
-        if not denomination or not serial:
+        for ocr_result in successful:
+            denomination = ocr_result.get("denomination")
+            serial = ocr_result.get("serial")
+
+            if not denomination or not serial:
+                continue
+
+            verification = self.verify_serial(denomination, serial, track=False)
+            verification["ocr_result"] = ocr_result
+            verification["series"] = ocr_result.get("series", "")
+
+            self.database.record_scan(
+                denomination=denomination,
+                serial=serial,
+                series=ocr_result.get("series", ""),
+                verdict=verification["verdict"],
+                risk_level=verification["risk_level"],
+                confidence=verification["confidence"],
+                method="scan",
+                raw_ocr_text=ocr_result.get("raw_text", ""),
+                batch_id=batch_id if len(successful) > 1 else "",
+            )
+            self._increment_stats(verification["verdict"])
+            banknotes.append(verification)
+
+        if not banknotes:
             return {
                 "success": False,
                 "step_failed": "extraction",
-                "ocr_result": ocr_result,
+                "ocr_result": successful[0],
                 "message": "No se pudo extraer la denominacion o el numero de serie.",
             }
 
-        verification = self.verify_serial(denomination, serial, track=False)
-        verification["ocr_result"] = ocr_result
-        verification["series"] = ocr_result.get("series", "")
+        # Build summary
+        summary = {
+            "total": len(banknotes),
+            "legal": sum(1 for b in banknotes if b["verdict"] == "LEGAL"),
+            "illegal": sum(1 for b in banknotes if b["verdict"] == "ILEGAL"),
+            "suspicious": sum(1 for b in banknotes if b["verdict"] == "SOSPECHOSO"),
+        }
 
-        self.database.record_scan(
-            denomination=denomination,
-            serial=serial,
-            series=ocr_result.get("series", ""),
-            verdict=verification["verdict"],
-            risk_level=verification["risk_level"],
-            confidence=verification["confidence"],
-            method="scan",
-            raw_ocr_text=ocr_result.get("raw_text", ""),
-        )
-        self._increment_stats(verification["verdict"])
+        # Build response with backward compat (spread first banknote at top level)
+        result = {
+            "success": True,
+            "batch_id": batch_id,
+            "banknotes": banknotes,
+            "summary": summary,
+        }
+        # Backward compat: top-level fields from first banknote
+        result.update(banknotes[0])
 
-        return verification
+        return result
 
     def verify_serial(self, denomination: int, serial: int, track: bool = True) -> dict:
         """Verifica un serial contra la DB del BCB y la red neuronal."""
