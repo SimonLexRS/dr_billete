@@ -123,6 +123,7 @@
                                 <div class="frame-corner bl"></div>
                                 <div class="frame-corner br"></div>
                             </div>
+                            <div class="camera-guide" id="cameraGuide" style="display:none">Centre el billete en el recuadro</div>
                         </div>
                         <div class="camera-controls">
                             <button class="btn btn-primary" id="btnStartCamera">
@@ -158,6 +159,10 @@
                     <button class="btn btn-scan btn-block" id="btnScan" disabled>
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 4V1h3M20 1h3v3M1 20v3h3M23 20v3h-3"/><line x1="1" y1="12" x2="23" y2="12"/></svg>
                         Analizar Billete
+                    </button>
+                    <button class="btn btn-recapture btn-block" id="btnRecapture" style="display:none">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                        Recapturar
                     </button>
                 </div>
 
@@ -254,6 +259,11 @@
                 <div class="db-table-section"><h3 class="table-title bs50">Bs 50</h3><table class="data-table"><thead><tr><th>Desde</th><th>Hasta</th><th>Cantidad</th></tr></thead><tbody id="tableBs50"></tbody></table></div>
                 <div class="db-table-section"><h3 class="table-title bs20">Bs 20</h3><table class="data-table"><thead><tr><th>Desde</th><th>Hasta</th><th>Cantidad</th></tr></thead><tbody id="tableBs20"></tbody></table></div>
                 <div class="db-table-section"><h3 class="table-title bs10">Bs 10</h3><table class="data-table"><thead><tr><th>Desde</th><th>Hasta</th><th>Cantidad</th></tr></thead><tbody id="tableBs10"></tbody></table></div>
+            </div>
+            <div class="history-section" style="margin-top:2rem">
+                <h3 class="section-title">Historial de Escaneos</h3>
+                <div id="historyContainer"></div>
+                <div id="historyPagination"></div>
             </div>
         </div>
     </main>

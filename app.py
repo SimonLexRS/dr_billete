@@ -95,6 +95,21 @@ def get_ranges():
     return jsonify(detector.get_ranges())
 
 
+@app.route("/api/history")
+def get_history():
+    """Retorna historial de escaneos paginado."""
+    page = request.args.get("page", 1, type=int)
+    per_page = min(request.args.get("per_page", 20, type=int), 100)
+    verdict = request.args.get("verdict", None)
+    denomination = request.args.get("denomination", None)
+    return jsonify(detector.get_history(
+        page=page,
+        per_page=per_page,
+        verdict_filter=verdict,
+        denomination_filter=denomination,
+    ))
+
+
 @app.route("/api/test-connection")
 def test_connection():
     """Prueba la conexion con DeepSeek."""

@@ -12,6 +12,7 @@ DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 MODEL_WEIGHTS_PATH = os.path.join(DATA_DIR, "model_weights.json")
 BCB_DATA_PATH = os.path.join(DATA_DIR, "bcb_series.json")
 SCAN_STATS_PATH = os.path.join(DATA_DIR, "scan_stats.json")
+DATABASE_PATH = os.path.join(DATA_DIR, "dr_billetes.db")
 
 FLASK_HOST = "0.0.0.0"
 FLASK_PORT = 5000

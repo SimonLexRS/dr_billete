@@ -1281,6 +1281,94 @@ body {
     }
 }
 
+/* Camera Guide */
+.camera-guide {
+    position: absolute;
+    bottom: 12%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.6);
+    color: white;
+    padding: 0.4rem 1rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    pointer-events: none;
+    z-index: 2;
+    white-space: nowrap;
+}
+
+/* Recapture Button */
+.btn-recapture {
+    background: var(--info);
+    color: white;
+    padding: 0.85rem 2rem;
+    font-size: 1rem;
+}
+.btn-recapture:hover:not(:disabled) {
+    background: #1D4ED8;
+}
+
+/* History Section */
+.history-section {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.25rem;
+    box-shadow: var(--shadow);
+}
+
+.history-table {
+    display: table;
+    margin-top: 1rem;
+}
+
+.history-table thead,
+.history-table tbody,
+.history-table tr {
+    display: table;
+    width: 100%;
+    table-layout: fixed;
+}
+
+/* Pagination */
+.pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.btn-page {
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-card);
+    color: var(--text);
+    font-size: 0.8rem;
+    font-weight: 500;
+    cursor: pointer;
+    font-family: inherit;
+    transition: var(--transition);
+    min-height: 36px;
+}
+
+.btn-page:hover:not(:disabled) {
+    background: var(--bg);
+    border-color: var(--text-muted);
+}
+
+.btn-page:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.pagination-info {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
 /* Responsive: Very small */
 @media (max-width: 360px) {
     .stats-banner {

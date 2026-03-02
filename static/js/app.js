@@ -9,6 +9,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentImage = null;
     let selectedDenom = null;
     let cameraStream = null;
+    let cameraPermissionGranted = false;
 
     // ===================== DOM Elements =====================
     const tabs = document.querySelectorAll('.tab');
@@ -58,6 +59,11 @@ document.addEventListener('DOMContentLoaded', () => {
             tab.classList.add('active');
             document.getElementById(`tab-${target}`).classList.add('active');
 
+            if (target === 'scan') {
+                if (cameraPermissionGranted && !currentImage) startCamera();
+            } else {
+                stopCamera();
+            }
             if (target === 'database') loadDatabaseView();
             if (target === 'training') loadModelInfo();
         });
@@ -77,34 +83,66 @@ document.addEventListener('DOMContentLoaded', () => {
     // ===================== Camera =====================
     cameraOverlay.addEventListener('click', startCamera);
     btnStartCamera.addEventListener('click', startCamera);
+    const btnRecapture = document.getElementById('btnRecapture');
+    const cameraGuide = document.getElementById('cameraGuide');
+
+    async function checkCameraPermission() {
+        try {
+            if (navigator.permissions && navigator.permissions.query) {
+                const result = await navigator.permissions.query({ name: 'camera' });
+                cameraPermissionGranted = result.state === 'granted';
+                result.addEventListener('change', () => {
+                    cameraPermissionGranted = result.state === 'granted';
+                });
+            }
+        } catch (e) { /* Firefox doesn't support camera permission query */ }
+    }
 
     async function startCamera() {
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
             const isLocalhost = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
             if (!isLocalhost) {
-                alert(
-                    'La camara requiere un contexto seguro (HTTPS).\n\n' +
-                    'Acceda desde https://dr.sentinel-ia.com o suba una imagen.'
-                );
+                alert('La camara requiere HTTPS.\n\nAcceda desde https://dr.sentinel-ia.com o suba una imagen.');
             } else {
-                alert('Su navegador no soporta acceso a la camara.\nUse la opcion de subir imagen.');
+                alert('Su navegador no soporta acceso a la camara.');
             }
             return;
         }
+
+        // Reuse existing active stream
+        if (cameraStream && cameraStream.active) {
+            cameraVideo.srcObject = cameraStream;
+            showCameraActive();
+            return;
+        }
+
         try {
             cameraStream = await navigator.mediaDevices.getUserMedia({
                 video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
             });
             cameraVideo.srcObject = cameraStream;
-            cameraOverlay.classList.add('hidden');
-            cameraContainer.querySelector('.camera-frame').classList.add('active');
-            cameraContainer.style.borderStyle = 'solid';
-            btnCapture.disabled = false;
-            btnStartCamera.textContent = 'Camara Activa';
-            btnStartCamera.disabled = true;
+            cameraPermissionGranted = true;
+            showCameraActive();
         } catch (err) {
+            if (err.name === 'NotAllowedError') {
+                cameraPermissionGranted = false;
+            }
             alert('No se pudo acceder a la camara: ' + err.message + '\n\nUse la opcion de subir imagen.');
         }
+    }
+
+    function showCameraActive() {
+        cameraOverlay.classList.add('hidden');
+        cameraContainer.querySelector('.camera-frame').classList.add('active');
+        if (cameraGuide) cameraGuide.style.display = '';
+        cameraContainer.style.borderStyle = 'solid';
+        btnCapture.disabled = false;
+        btnStartCamera.style.display = 'none';
+        // Reset preview state
+        imagePreview.style.display = 'none';
+        uploadZone.style.display = '';
+        if (btnRecapture) btnRecapture.style.display = 'none';
+        btnScan.disabled = true;
     }
 
     btnCapture.addEventListener('click', () => {
@@ -115,8 +153,27 @@ document.addEventListener('DOMContentLoaded', () => {
         ctx.drawImage(cameraVideo, 0, 0);
         const dataUrl = cameraCanvas.toDataURL('image/jpeg', 0.9);
         setImage(dataUrl);
-        stopCamera();
+        pauseCamera();
+        if (btnRecapture) btnRecapture.style.display = '';
     });
+
+    if (btnRecapture) {
+        btnRecapture.addEventListener('click', () => {
+            currentImage = null;
+            imagePreview.style.display = 'none';
+            btnScan.disabled = true;
+            btnRecapture.style.display = 'none';
+            startCamera();
+        });
+    }
+
+    function pauseCamera() {
+        // Keep stream alive, just hide camera UI
+        cameraOverlay.classList.add('hidden');
+        cameraContainer.querySelector('.camera-frame').classList.remove('active');
+        if (cameraGuide) cameraGuide.style.display = 'none';
+        btnCapture.disabled = true;
+    }
 
     function stopCamera() {
         if (cameraStream) {
@@ -125,8 +182,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         cameraOverlay.classList.remove('hidden');
         cameraContainer.querySelector('.camera-frame').classList.remove('active');
+        if (cameraGuide) cameraGuide.style.display = 'none';
         cameraContainer.style.borderStyle = 'dashed';
         btnCapture.disabled = true;
+        btnStartCamera.style.display = '';
         btnStartCamera.disabled = false;
         btnStartCamera.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg> Activar Camara`;
     }
@@ -555,6 +614,7 @@ document.addEventListener('DOMContentLoaded', () => {
             fillTable('tableBs50', ranges.filter(r => r.denomination === 50));
             fillTable('tableBs20', ranges.filter(r => r.denomination === 20));
             fillTable('tableBs10', ranges.filter(r => r.denomination === 10));
+            loadHistory(1);
         } catch (e) { /* silent */ }
     }
 
@@ -583,9 +643,75 @@ document.addEventListener('DOMContentLoaded', () => {
         loadingOverlay.style.display = 'none';
     }
 
+    // ===================== Page Lifecycle =====================
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) stopCamera();
+    });
+
+    window.addEventListener('beforeunload', () => {
+        stopCamera();
+    });
+
+    // ===================== History =====================
+    let historyPage = 1;
+
+    async function loadHistory(page) {
+        historyPage = page || 1;
+        const container = document.getElementById('historyContainer');
+        const pagination = document.getElementById('historyPagination');
+        if (!container) return;
+
+        try {
+            const resp = await fetch(`/api/history?page=${historyPage}&per_page=15`);
+            const data = await resp.json();
+
+            if (!data.scans || data.scans.length === 0) {
+                container.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:2rem">No hay escaneos registrados aun.</p>';
+                if (pagination) pagination.innerHTML = '';
+                return;
+            }
+
+            let html = '<table class="data-table history-table"><thead><tr>';
+            html += '<th>Fecha</th><th>Bs</th><th>Serie</th><th>Veredicto</th><th>Metodo</th>';
+            html += '</tr></thead><tbody>';
+
+            data.scans.forEach(s => {
+                const date = new Date(s.timestamp).toLocaleString('es-BO', { dateStyle: 'short', timeStyle: 'short' });
+                const vClass = s.verdict === 'ILEGAL' ? 'color:var(--danger)' : s.verdict === 'SOSPECHOSO' ? 'color:var(--warning)' : 'color:var(--success)';
+                html += `<tr>
+                    <td>${date}</td>
+                    <td>${s.denomination || '-'}</td>
+                    <td>${s.series || '-'}</td>
+                    <td style="${vClass};font-weight:600">${s.verdict}</td>
+                    <td>${s.method}</td>
+                </tr>`;
+            });
+
+            html += '</tbody></table>';
+            container.innerHTML = html;
+
+            if (pagination && data.total_pages > 1) {
+                let pagHtml = '';
+                pagHtml += `<button class="btn-page" ${data.page <= 1 ? 'disabled' : ''} onclick="window._loadHistory(${data.page - 1})">Anterior</button>`;
+                pagHtml += `<span class="pagination-info">Pagina ${data.page} de ${data.total_pages}</span>`;
+                pagHtml += `<button class="btn-page" ${data.page >= data.total_pages ? 'disabled' : ''} onclick="window._loadHistory(${data.page + 1})">Siguiente</button>`;
+                pagination.innerHTML = pagHtml;
+            } else if (pagination) {
+                pagination.innerHTML = '';
+            }
+        } catch (e) {
+            container.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:1rem">Error al cargar historial.</p>';
+        }
+    }
+
+    window._loadHistory = function(page) { loadHistory(page); };
+
     // ===================== Init =====================
     loadStats();
     loadModelInfo();
+    checkCameraPermission().then(() => {
+        if (cameraPermissionGranted) startCamera();
+    });
 
     // ===================== Donate Modal =====================
     document.addEventListener('keydown', function(e) {
