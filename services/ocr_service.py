@@ -35,11 +35,14 @@ PROMPT = (
     "Serial: [numero]"
 )
 
+FALLBACK_PROMPT = "Lee todo el texto visible en esta imagen"
+
 
 class OCRService:
     def __init__(self):
         self.api_url = config.LM_STUDIO_API_URL
         self.model = config.VISION_MODEL
+        self.fallback_model = config.FALLBACK_VISION_MODEL
 
     @staticmethod
     def _normalize_orientation(image_base64: str) -> str:
@@ -58,19 +61,44 @@ class OCRService:
     def extract_from_image(self, image_base64: str) -> dict:
         """
         Envia una imagen en base64 a LM Studio REST API nativo (/api/v1/chat).
-        Usa streaming para mantener la conexion viva a traves de Tailscale/Docker.
+        Usa el modelo principal (glm-4.6v-flash) con prompt estructurado.
+        Si falla, intenta con fallback (glm-ocr) + prompt simple + regex.
         Retorna: denomination, serial, series, raw_text
         """
         image_base64 = self._normalize_orientation(image_base64)
 
+        # Intento 1: modelo principal con prompt estructurado
+        result = self._call_vision_model(image_base64, self.model, PROMPT)
+        if result.get("success"):
+            return result
+
+        # Intento 2: fallback con modelo OCR simple + regex parsing
+        if self.fallback_model != self.model:
+            fallback_result = self._call_vision_model(
+                image_base64, self.fallback_model, FALLBACK_PROMPT
+            )
+            if fallback_result.get("success"):
+                return fallback_result
+            # Si el fallback obtuvo texto crudo, intentar extraer con regex
+            raw = fallback_result.get("raw_response", "")
+            if raw:
+                extracted = self._extract_from_text(raw)
+                if extracted:
+                    return extracted
+
+        return result  # Retornar el error del intento principal
+
+    def _call_vision_model(self, image_base64: str, model: str,
+                           prompt: str) -> dict:
+        """Llama a un modelo de vision en LM Studio y parsea la respuesta."""
         payload = {
-            "model": self.model,
+            "model": model,
             "input": [
                 {"type": "image", "data_url": f"data:image/jpeg;base64,{image_base64}"},
-                {"type": "text", "content": PROMPT},
+                {"type": "text", "content": prompt},
             ],
             "temperature": 0.1,
-            "max_output_tokens": 300,
+            "max_output_tokens": 500,
             "stream": True,
         }
 
@@ -83,9 +111,6 @@ class OCRService:
             )
             response.raise_for_status()
 
-            # Acumular respuesta streamed (formato SSE nativo de LM Studio)
-            # Eventos: chat.start, prompt_processing.*, message.start,
-            #          message.delta (con content), message.end, chat.end
             content = ""
             for line in response.iter_lines():
                 if not line:
@@ -93,13 +118,11 @@ class OCRService:
 
                 line_str = line.decode("utf-8") if isinstance(line, bytes) else line
 
-                # Strip SSE prefix "data: "
                 if line_str.startswith("data: "):
                     line_str = line_str[6:]
                 elif line_str.startswith("event: "):
-                    continue  # Skip event type lines
+                    continue
 
-                # End of stream signal
                 if line_str.strip() == "[DONE]":
                     break
 
@@ -114,7 +137,6 @@ class OCRService:
                         err_msg = err_msg.get("message", str(err_msg))
                     return self._fallback_error(f"Error de LM Studio: {err_msg}")
 
-                # message.delta chunks tienen {type: "message.delta", content: "..."}
                 chunk_type = chunk.get("type", "")
                 if chunk_type == "message.delta":
                     content += chunk.get("content", "")
@@ -153,7 +175,8 @@ class OCRService:
 
     def _parse_response(self, content: str) -> dict:
         """Parsea la respuesta del modelo."""
-        content = content.strip()
+        # Limpiar tags especiales de glm-4v-flash
+        content = re.sub(r'<\|[^|]*\|>', '', content).strip()
 
         # Intento 1: buscar formato estructurado "Denominacion: X, Serie: Y, Serial: Z"
         denom_match = re.search(r'[Dd]enominaci[oó]n:\s*(\d{2,3})', content)
@@ -313,6 +336,7 @@ class OCRService:
             return {
                 "connected": True,
                 "model": self.model,
+                "fallback_model": self.fallback_model,
                 "available_models": model_ids,
             }
         except Exception as e:

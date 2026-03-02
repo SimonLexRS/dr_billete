@@ -6,7 +6,8 @@ DEEPSEEK_MODEL = "deepseek-chat"
 
 # Vision/OCR via LM Studio local accesible por Tailscale VPN
 LM_STUDIO_API_URL = os.environ.get("LM_STUDIO_API_URL", "http://100.121.240.89:8084/api/v1/chat")
-VISION_MODEL = os.environ.get("VISION_MODEL", "glm-ocr")
+VISION_MODEL = os.environ.get("VISION_MODEL", "zai-org/glm-4.6v-flash")
+FALLBACK_VISION_MODEL = os.environ.get("FALLBACK_VISION_MODEL", "glm-ocr")
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 MODEL_WEIGHTS_PATH = os.path.join(DATA_DIR, "model_weights.json")
