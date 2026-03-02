@@ -38,6 +38,7 @@ class OCRService:
     def extract_from_image(self, image_base64: str) -> dict:
         """
         Envia una imagen en base64 a Ollama para extraer datos del billete.
+        Usa streaming para mantener la conexion viva a traves de Tailscale/Docker.
         Retorna: denomination, serial, series, raw_text
         """
         payload = {
@@ -49,7 +50,7 @@ class OCRService:
                     "images": [image_base64],
                 }
             ],
-            "stream": False,
+            "stream": True,
             "options": {
                 "temperature": 0.1,
                 "num_predict": 300,
@@ -60,16 +61,30 @@ class OCRService:
             response = requests.post(
                 self.api_url,
                 json=payload,
-                timeout=90,
+                timeout=(30, 300),
+                stream=True,
             )
             response.raise_for_status()
-            data = response.json()
 
-            if "error" in data:
-                err_msg = data["error"] if isinstance(data["error"], str) else data["error"].get("message", str(data["error"]))
-                return self._fallback_error(f"Error de Ollama: {err_msg}")
+            # Acumular respuesta streamed
+            content = ""
+            for line in response.iter_lines():
+                if not line:
+                    continue
+                try:
+                    chunk = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
 
-            content = data.get("message", {}).get("content", "")
+                if "error" in chunk:
+                    err_msg = chunk["error"] if isinstance(chunk["error"], str) else str(chunk["error"])
+                    return self._fallback_error(f"Error de Ollama: {err_msg}")
+
+                content += chunk.get("message", {}).get("content", "")
+
+                if chunk.get("done"):
+                    break
+
             if not content:
                 return self._fallback_error("El modelo OCR no devolvio respuesta.")
 
