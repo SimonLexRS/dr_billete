@@ -187,7 +187,14 @@ document.addEventListener('DOMContentLoaded', () => {
         btnCapture.disabled = true;
         if (btnRecapture) btnRecapture.style.display = '';
 
-        // Auto-analyze
+        // Auto-analyze with progressive messages
+        const captureText = captureLoading.querySelector('p');
+        const captureMessages = ['Analizando billete...', 'Procesando con IA...', 'Extrayendo datos...', 'Casi listo...'];
+        let ci = 0;
+        const captureInterval = setInterval(() => {
+            ci++;
+            if (ci < captureMessages.length && captureText) captureText.textContent = captureMessages[ci];
+        }, 5000);
         try {
             const resp = await fetch('/api/scan', {
                 method: 'POST',
@@ -195,10 +202,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify({ image: currentImage }),
             });
             const data = await resp.json();
+            clearInterval(captureInterval);
             captureLoading.style.display = 'none';
             showResults(resultsPanel, data, scanContainer);
             loadStats();
         } catch (err) {
+            clearInterval(captureInterval);
             captureLoading.style.display = 'none';
             showResults(resultsPanel, { success: false, message: 'Error de conexion: ' + err.message }, scanContainer);
         }
@@ -266,14 +275,21 @@ document.addEventListener('DOMContentLoaded', () => {
     function handleFile(file) {
         const reader = new FileReader();
         reader.onload = (e) => {
-            // Draw through canvas to normalize EXIF orientation
             const img = new Image();
             img.onload = () => {
+                const maxDim = 1280;
+                let w = img.naturalWidth;
+                let h = img.naturalHeight;
+                if (w > maxDim || h > maxDim) {
+                    const scale = maxDim / Math.max(w, h);
+                    w = Math.round(w * scale);
+                    h = Math.round(h * scale);
+                }
                 const canvas = document.createElement('canvas');
-                canvas.width = img.naturalWidth;
-                canvas.height = img.naturalHeight;
-                canvas.getContext('2d').drawImage(img, 0, 0);
-                setImage(canvas.toDataURL('image/jpeg', 0.9));
+                canvas.width = w;
+                canvas.height = h;
+                canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+                setImage(canvas.toDataURL('image/jpeg', 0.85));
             };
             img.src = e.target.result;
         };
@@ -299,7 +315,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // ===================== Scan =====================
     btnScan.addEventListener('click', async () => {
         if (!currentImage) return;
-        showLoading('Analizando con OCR Sentinel AI...');
+        const stopProgress = showLoadingWithProgress('Preparando imagen...');
         try {
             const resp = await fetch('/api/scan', {
                 method: 'POST',
@@ -307,11 +323,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify({ image: currentImage }),
             });
             const data = await resp.json();
-            hideLoading();
+            stopProgress();
             showResults(resultsPanel, data, scanContainer);
             loadStats();
         } catch (err) {
-            hideLoading();
+            stopProgress();
             showResults(resultsPanel, { success: false, message: 'Error de conexion: ' + err.message }, scanContainer);
         }
     });
@@ -744,6 +760,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function hideLoading() {
         loadingOverlay.style.display = 'none';
+    }
+
+    function showLoadingWithProgress(initialText) {
+        const messages = [
+            'Preparando imagen...',
+            'Enviando al servidor OCR...',
+            'Analizando con inteligencia artificial...',
+            'Procesando con modelo de vision...',
+            'Extrayendo datos del billete...',
+            'Casi listo...',
+        ];
+        let idx = 0;
+        loadingText.textContent = initialText || messages[0];
+        loadingOverlay.style.display = 'flex';
+        const interval = setInterval(() => {
+            idx++;
+            if (idx < messages.length) loadingText.textContent = messages[idx];
+        }, 4000);
+        return () => { clearInterval(interval); loadingOverlay.style.display = 'none'; };
     }
 
     // ===================== Page Lifecycle =====================

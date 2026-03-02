@@ -55,13 +55,13 @@ class OCRService:
 
     @staticmethod
     def _normalize_orientation(image_base64: str) -> str:
-        """Normalize EXIF orientation, resize to max 1024px, return base64."""
+        """Normalize EXIF orientation, resize to max 800px, return base64."""
         try:
             img = Image.open(BytesIO(base64.b64decode(image_base64)))
             img = ImageOps.exif_transpose(img)
             if img.mode == "RGBA":
                 img = img.convert("RGB")
-            img.thumbnail((1024, 1024))
+            img.thumbnail((800, 800))
             buf = BytesIO()
             img.save(buf, format="JPEG", quality=85)
             return base64.b64encode(buf.getvalue()).decode("utf-8")
@@ -115,6 +115,8 @@ class OCRService:
     def _call_vision_model(self, image_base64: str, model: str,
                            prompt: str) -> list:
         """Llama a un modelo de vision en LM Studio y parsea la respuesta.
+        Usa modo non-streaming para menor overhead. Si el servidor responde
+        con SSE igualmente, cae al parser de streaming como fallback.
         Retorna lista de resultados (uno por billete detectado)."""
         payload = {
             "model": model,
@@ -124,49 +126,29 @@ class OCRService:
             ],
             "temperature": 0.1,
             "max_output_tokens": config.MAX_OUTPUT_TOKENS,
-            "stream": True,
+            "stream": False,
         }
 
         try:
             response = requests.post(
                 self.api_url,
                 json=payload,
-                timeout=(30, 300),
-                stream=True,
+                timeout=(15, 120),
             )
             response.raise_for_status()
 
-            content = ""
-            for line in response.iter_lines():
-                if not line:
-                    continue
-
-                line_str = line.decode("utf-8") if isinstance(line, bytes) else line
-
-                if line_str.startswith("data: "):
-                    line_str = line_str[6:]
-                elif line_str.startswith("event: "):
-                    continue
-
-                if line_str.strip() == "[DONE]":
-                    break
-
-                try:
-                    chunk = json.loads(line_str)
-                except json.JSONDecodeError:
-                    continue
-
-                if "error" in chunk:
-                    err_msg = chunk["error"]
+            content_type = response.headers.get("content-type", "")
+            if "text/event-stream" in content_type:
+                # Servidor ignoro stream=False, parsear como SSE
+                content = self._parse_sse_stream(response)
+            else:
+                data = response.json()
+                if "error" in data:
+                    err_msg = data["error"]
                     if isinstance(err_msg, dict):
                         err_msg = err_msg.get("message", str(err_msg))
                     return [self._fallback_error(f"Error de LM Studio: {err_msg}")]
-
-                chunk_type = chunk.get("type", "")
-                if chunk_type == "message.delta":
-                    content += chunk.get("content", "")
-                elif chunk_type == "chat.end":
-                    break
+                content = self._extract_content_from_response(data)
 
             if not content:
                 return [self._fallback_error("El modelo OCR no devolvio respuesta.")]
@@ -197,6 +179,48 @@ class OCRService:
             )]
         except Exception as e:
             return [self._fallback_error(f"Error inesperado: {str(e)}")]
+
+    @staticmethod
+    def _extract_content_from_response(data: dict) -> str:
+        """Extrae texto de una respuesta non-streaming de LM Studio."""
+        if "content" in data:
+            return data["content"]
+        if "choices" in data:
+            choices = data["choices"]
+            if choices and "message" in choices[0]:
+                return choices[0]["message"].get("content", "")
+        if "message" in data:
+            msg = data["message"]
+            if isinstance(msg, dict):
+                return msg.get("content", "")
+            return str(msg)
+        return ""
+
+    def _parse_sse_stream(self, response) -> str:
+        """Parsea respuesta SSE (fallback si servidor ignora stream=False)."""
+        content = ""
+        for line in response.iter_lines():
+            if not line:
+                continue
+            line_str = line.decode("utf-8") if isinstance(line, bytes) else line
+            if line_str.startswith("data: "):
+                line_str = line_str[6:]
+            elif line_str.startswith("event: "):
+                continue
+            if line_str.strip() == "[DONE]":
+                break
+            try:
+                chunk = json.loads(line_str)
+            except json.JSONDecodeError:
+                continue
+            if "error" in chunk:
+                break
+            chunk_type = chunk.get("type", "")
+            if chunk_type == "message.delta":
+                content += chunk.get("content", "")
+            elif chunk_type == "chat.end":
+                break
+        return content
 
     def _parse_multi_response(self, content: str) -> list:
         """Parsea respuesta que puede contener multiples billetes separados por ---BILLETE---."""
