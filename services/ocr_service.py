@@ -26,15 +26,22 @@ DENOM_MAP = {
 }
 
 PROMPT = (
-    "Esta imagen contiene uno o mas billetes bolivianos. "
-    "Para CADA billete visible, identifica la denominacion (10, 20, 50, 100 o 200), "
-    "el numero de serie (6-10 digitos) y la letra de serie. "
+    "Esta imagen contiene uno o mas billetes bolivianos fisicos. "
+    "IGNORA completamente cualquier texto que NO sea parte de un billete "
+    "(numeros de telefono, comentarios, logos, marcas de agua de apps, "
+    "texto de interfaz, emojis, nombres de usuario). "
+    "Solo lee el texto IMPRESO en los billetes fisicos.\n\n"
+    "Para CADA billete visible, extrae:\n"
+    "- Denominacion: el valor del billete (10, 20, 50, 100 o 200)\n"
+    "- Serie: la letra mayuscula (A, B, C, etc.)\n"
+    "- Serial: el numero de serie impreso (tipicamente 9 digitos)\n\n"
     "Responde con este formato para CADA billete:\n"
     "---BILLETE---\n"
     "Denominacion: [numero]\n"
     "Serie: [letra]\n"
-    "Serial: [numero]\n"
-    "Si solo hay un billete, usa el mismo formato."
+    "Serial: [numero]\n\n"
+    "Si hay varios billetes, repite el bloque ---BILLETE--- para cada uno. "
+    "Si solo hay uno, usa el mismo formato una vez."
 )
 
 FALLBACK_PROMPT = "Lee todo el texto visible en esta imagen"
@@ -247,7 +254,7 @@ class OCRService:
             serial = int(serial_match.group(1))
             series = series_match.group(1).upper() if series_match else ""
 
-            if denomination in (10, 20, 50, 100, 200):
+            if denomination in (10, 20, 50, 100, 200) and self._is_valid_serial(serial):
                 return {
                     "success": True,
                     "denomination": denomination,
@@ -269,7 +276,7 @@ class OCRService:
                 if isinstance(denomination, str):
                     denomination = int(re.sub(r"[^0-9]", "", denomination) or "0")
 
-                if denomination and serial:
+                if denomination and serial and self._is_valid_serial(serial):
                     return {
                         "success": True,
                         "denomination": denomination,
@@ -333,13 +340,15 @@ class OCRService:
         # Patron: letra + espacio/sin espacio + digitos (ej: "B 097000123", "B097000123")
         series_serial = re.search(r'\b([A-Z])\s*(\d{6,10})\b', text_upper)
         if series_serial:
-            series = series_serial.group(1)
-            serial = int(series_serial.group(2))
+            candidate = int(series_serial.group(2))
+            if self._is_valid_serial(candidate):
+                series = series_serial.group(1)
+                serial = candidate
 
         # Patron: secuencia larga de digitos (6-10)
         if not serial:
             all_numbers = re.findall(r'\b(\d{6,10})\b', text)
-            candidates = [int(n) for n in all_numbers]
+            candidates = [int(n) for n in all_numbers if self._is_valid_serial(int(n))]
             if candidates:
                 serial = candidates[0]
 
@@ -392,6 +401,8 @@ class OCRService:
             serial = int(serial_str)
             if serial in seen_serials:
                 continue
+            if not self._is_valid_serial(serial):
+                continue
             seen_serials.add(serial)
             if denomination:
                 results.append({
@@ -432,6 +443,18 @@ class OCRService:
                 return int(num_str)
 
         return None
+
+    @staticmethod
+    def _is_valid_serial(serial: int, denomination: int = None) -> bool:
+        """Valida que un numero parezca serial de billete boliviano."""
+        s = str(serial)
+        # Seriales bolivianos tipicamente tienen 7-9 digitos
+        if len(s) < 7 or len(s) > 10:
+            return False
+        # Rechazar numeros que parezcan telefonos bolivianos (8 digitos empezando con 6 o 7)
+        if len(s) == 8 and s[0] in ('6', '7'):
+            return False
+        return True
 
     @staticmethod
     def _fallback_error(message: str) -> dict:
