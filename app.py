@@ -3,10 +3,28 @@ Dr. Billetes - Detector de Billetes Ilegales BCB Bolivia
 Servidor Flask principal.
 """
 
+import os
+import shutil
+
 from flask import Flask, render_template, request, jsonify
 from flask_cors import CORS
 from services.detector_service import DetectorService
 import config
+
+
+def ensure_data_files():
+    """Copy bundled data files to DATA_DIR if they don't exist yet."""
+    bundled = os.path.join(os.path.dirname(__file__), "data")
+    for fn in ("bcb_series.json", "model_weights.json"):
+        dest = os.path.join(config.DATA_DIR, fn)
+        if not os.path.exists(dest):
+            src = os.path.join(bundled, fn)
+            if os.path.exists(src):
+                os.makedirs(config.DATA_DIR, exist_ok=True)
+                shutil.copy2(src, dest)
+
+
+ensure_data_files()
 
 app = Flask(__name__)
 CORS(app)

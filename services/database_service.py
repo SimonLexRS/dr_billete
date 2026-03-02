@@ -5,8 +5,9 @@ Almacena historial de escaneos y estadisticas de forma persistente.
 
 import json
 import os
+import random
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import config
 
@@ -18,6 +19,7 @@ class DatabaseService:
         self.db_path = db_path or DB_PATH
         self._init_db()
         self._migrate_json_stats()
+        self._seed_initial_data()
 
     def _get_conn(self):
         conn = sqlite3.connect(self.db_path)
@@ -91,6 +93,46 @@ class DatabaseService:
         finally:
             conn.close()
 
+    def _seed_initial_data(self):
+        """Insert 40 seed records if the database is completely empty.
+        Distribution: 36 legal (90%), 4 illegal (10%).
+        """
+        conn = self._get_conn()
+        try:
+            count = conn.execute("SELECT COUNT(*) FROM scans").fetchone()[0]
+            if count > 0:
+                return
+
+            base_time = datetime.now(timezone.utc) - timedelta(days=7)
+            rows = []
+
+            # 4 illegal scans
+            for i, denom in enumerate([50, 20, 50, 10]):
+                ts = (base_time + timedelta(hours=i * 4)).isoformat()
+                serial = random.randint(80000000, 99999999)
+                rows.append((ts, denom, serial, "B", "ILEGAL", "ALTO", 1.0, "seed", ""))
+
+            # 36 legal scans
+            legal_denoms = [10, 20, 50, 100, 200] * 8
+            for i, denom in enumerate(legal_denoms[:36]):
+                ts = (base_time + timedelta(hours=(i + 4) * 2)).isoformat()
+                serial = random.randint(10000000, 79999999)
+                rows.append((ts, denom, serial, "B", "LEGAL", "BAJO", 0.95, "seed", ""))
+
+            conn.executemany(
+                """INSERT INTO scans
+                   (timestamp, denomination, serial, series, verdict,
+                    risk_level, confidence, method, raw_ocr_text)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                rows,
+            )
+            conn.commit()
+            print(f"[DatabaseService] Seeded {len(rows)} initial records (4 illegal, 36 legal).")
+        except Exception as e:
+            print(f"[DatabaseService] Warning during seeding: {e}")
+        finally:
+            conn.close()
+
     def record_scan(self, denomination, serial, series, verdict, risk_level,
                     confidence, method, raw_ocr_text=""):
         conn = self._get_conn()
@@ -136,7 +178,7 @@ class DatabaseService:
                 SELECT id, timestamp, denomination, serial, series, verdict,
                        risk_level, confidence, method
                 FROM scans
-                WHERE method != 'migrated'
+                WHERE method NOT IN ('migrated', 'seed')
                 ORDER BY id DESC
                 LIMIT ?
             """, (limit,)).fetchall()
@@ -148,7 +190,7 @@ class DatabaseService:
                     denomination_filter=None):
         conn = self._get_conn()
         try:
-            where_clauses = ["method != 'migrated'"]
+            where_clauses = ["method NOT IN ('migrated', 'seed')"]
             params = []
 
             if verdict_filter:

@@ -4,9 +4,14 @@ Envia imagenes de billetes para extraer numero de serie, denominacion y serie.
 Endpoint: /api/v1/chat
 """
 
+import base64
 import json
 import re
+from io import BytesIO
+
 import requests
+from PIL import Image, ImageOps
+
 import config
 
 
@@ -21,8 +26,10 @@ DENOM_MAP = {
 
 PROMPT = (
     "Esta es una imagen de un billete boliviano. "
-    "Identifica la denominacion, el numero de serie y la letra de serie. "
-    "Responde con el formato:\n"
+    "La imagen puede estar rotada o inclinada. "
+    "Identifica la denominacion (10, 20, 50, 100 o 200 bolivianos), "
+    "el numero de serie (6-10 digitos) y la letra de serie. "
+    "Responde UNICAMENTE con:\n"
     "Denominacion: [numero]\n"
     "Serie: [letra]\n"
     "Serial: [numero]"
@@ -34,12 +41,28 @@ class OCRService:
         self.api_url = config.LM_STUDIO_API_URL
         self.model = config.VISION_MODEL
 
+    @staticmethod
+    def _normalize_orientation(image_base64: str) -> str:
+        """Normalize EXIF orientation and return corrected base64."""
+        try:
+            img = Image.open(BytesIO(base64.b64decode(image_base64)))
+            img = ImageOps.exif_transpose(img)
+            if img.mode == "RGBA":
+                img = img.convert("RGB")
+            buf = BytesIO()
+            img.save(buf, format="JPEG", quality=90)
+            return base64.b64encode(buf.getvalue()).decode("utf-8")
+        except Exception:
+            return image_base64
+
     def extract_from_image(self, image_base64: str) -> dict:
         """
         Envia una imagen en base64 a LM Studio REST API nativo (/api/v1/chat).
         Usa streaming para mantener la conexion viva a traves de Tailscale/Docker.
         Retorna: denomination, serial, series, raw_text
         """
+        image_base64 = self._normalize_orientation(image_base64)
+
         payload = {
             "model": self.model,
             "input": [

@@ -30,6 +30,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnScan = document.getElementById('btnScan');
     const resultsPanel = document.getElementById('resultsPanel');
     const scanContainer = document.getElementById('scanContainer');
+    const capturePreview = document.getElementById('capturePreview');
+    const capturePreviewImg = document.getElementById('capturePreviewImg');
+    const captureLoading = document.getElementById('captureLoading');
 
     const denomBtns = document.querySelectorAll('.denom-btn');
     const serialInput = document.getElementById('serialInput');
@@ -60,9 +63,13 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById(`tab-${target}`).classList.add('active');
 
             if (target === 'scan') {
-                if (cameraPermissionGranted && !currentImage) startCamera();
+                if (cameraStream && cameraStream.active && !currentImage) {
+                    showCameraActive();
+                } else if (cameraPermissionGranted && !currentImage) {
+                    startCamera();
+                }
             } else {
-                stopCamera();
+                pauseCamera();
             }
             if (target === 'database') loadDatabaseView();
             if (target === 'training') loadModelInfo();
@@ -132,6 +139,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function showCameraActive() {
+        cameraVideo.play();
         cameraOverlay.classList.add('hidden');
         cameraContainer.querySelector('.camera-frame').classList.add('active');
         if (cameraGuide) cameraGuide.style.display = '';
@@ -145,30 +153,66 @@ document.addEventListener('DOMContentLoaded', () => {
         btnScan.disabled = true;
     }
 
-    btnCapture.addEventListener('click', () => {
+    btnCapture.addEventListener('click', async () => {
         if (!cameraStream) return;
         cameraCanvas.width = cameraVideo.videoWidth;
         cameraCanvas.height = cameraVideo.videoHeight;
         const ctx = cameraCanvas.getContext('2d');
         ctx.drawImage(cameraVideo, 0, 0);
         const dataUrl = cameraCanvas.toDataURL('image/jpeg', 0.9);
-        setImage(dataUrl);
+        currentImage = dataUrl;
+
+        // Show captured image in-place inside camera container
+        capturePreviewImg.src = dataUrl;
+        capturePreview.style.display = 'flex';
+        captureLoading.style.display = 'flex';
         pauseCamera();
+
+        // Hide upload zone and divider
+        uploadZone.style.display = 'none';
+        const divider = document.querySelector('.divider');
+        if (divider) divider.style.display = 'none';
+        btnScan.style.display = 'none';
+        btnCapture.disabled = true;
         if (btnRecapture) btnRecapture.style.display = '';
+
+        // Auto-analyze
+        try {
+            const resp = await fetch('/api/scan', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ image: currentImage }),
+            });
+            const data = await resp.json();
+            captureLoading.style.display = 'none';
+            showResults(resultsPanel, data, scanContainer);
+            loadStats();
+        } catch (err) {
+            captureLoading.style.display = 'none';
+            showResults(resultsPanel, { success: false, message: 'Error de conexion: ' + err.message }, scanContainer);
+        }
     });
 
     if (btnRecapture) {
         btnRecapture.addEventListener('click', () => {
             currentImage = null;
+            capturePreview.style.display = 'none';
+            captureLoading.style.display = 'none';
             imagePreview.style.display = 'none';
+            uploadZone.style.display = '';
+            const divider = document.querySelector('.divider');
+            if (divider) divider.style.display = '';
+            btnScan.style.display = '';
             btnScan.disabled = true;
             btnRecapture.style.display = 'none';
+            if (scanContainer) scanContainer.classList.remove('has-results');
             startCamera();
         });
     }
 
     function pauseCamera() {
         // Keep stream alive, just hide camera UI
+        cameraVideo.pause();
         cameraOverlay.classList.add('hidden');
         cameraContainer.querySelector('.camera-frame').classList.remove('active');
         if (cameraGuide) cameraGuide.style.display = 'none';
@@ -210,7 +254,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function handleFile(file) {
         const reader = new FileReader();
-        reader.onload = (e) => setImage(e.target.result);
+        reader.onload = (e) => {
+            // Draw through canvas to normalize EXIF orientation
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = img.naturalWidth;
+                canvas.height = img.naturalHeight;
+                canvas.getContext('2d').drawImage(img, 0, 0);
+                setImage(canvas.toDataURL('image/jpeg', 0.9));
+            };
+            img.src = e.target.result;
+        };
         reader.readAsDataURL(file);
     }
 
@@ -645,7 +700,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ===================== Page Lifecycle =====================
     document.addEventListener('visibilitychange', () => {
-        if (document.hidden) stopCamera();
+        if (document.hidden) {
+            pauseCamera();
+        } else {
+            const scanTab = document.querySelector('.tab.active');
+            if (scanTab?.dataset.tab === 'scan' && cameraStream?.active && !currentImage) {
+                showCameraActive();
+            }
+        }
     });
 
     window.addEventListener('beforeunload', () => {
