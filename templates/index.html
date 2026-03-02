@@ -3,7 +3,43 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dr. Billetes - Detector BCB Bolivia</title>
+    <title>Dr. Billetes - Verifica si tus billetes bolivianos son legales | BCB CP9/2026</title>
+
+    <!-- SEO -->
+    <meta name="description" content="Verifica si tus billetes bolivianos de Serie B son legales o ilegales segun el Comunicado de Prensa CP9/2026 del Banco Central de Bolivia. Escanea con tu camara o ingresa el numero de serie.">
+    <meta name="keywords" content="billetes ilegales Bolivia, BCB comunicado CP9/2026, detector billetes, verificar billetes bolivianos, billetes serie B, banco central de bolivia, billetes sin valor legal, billete falso Bolivia">
+    <meta name="author" content="Sentinel AI">
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="https://dr.sentinel-ia.com/">
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Dr. Billetes - Detector de Billetes Ilegales BCB Bolivia">
+    <meta property="og:description" content="Verifica si tus billetes bolivianos son legales - basado en el Comunicado BCB CP9/2026. Escanea con la camara o verifica manualmente.">
+    <meta property="og:url" content="https://dr.sentinel-ia.com/">
+    <meta property="og:locale" content="es_BO">
+    <meta property="og:site_name" content="Dr. Billetes">
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="Dr. Billetes - Detector de Billetes Ilegales BCB Bolivia">
+    <meta name="twitter:description" content="Verifica si tus billetes bolivianos son legales - basado en el Comunicado BCB CP9/2026.">
+
+    <!-- JSON-LD -->
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "Dr. Billetes",
+        "description": "Detector de billetes bolivianos ilegales basado en el Comunicado BCB CP9/2026",
+        "url": "https://dr.sentinel-ia.com/",
+        "applicationCategory": "FinanceApplication",
+        "operatingSystem": "Web",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "BOB" },
+        "author": { "@type": "Organization", "name": "Sentinel AI" }
+    }
+    </script>
+
     <link rel="stylesheet" href="/static/css/styles.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
 </head>
@@ -32,6 +68,22 @@
         </div>
     </header>
 
+    <!-- Stats Banner -->
+    <div class="stats-banner" id="statsBanner">
+        <div class="stats-banner-item">
+            <span class="stats-banner-value" id="statTotal">--</span>
+            <span class="stats-banner-label">Verificaciones</span>
+        </div>
+        <div class="stats-banner-item">
+            <span class="stats-banner-value stats-illegal" id="statIllegal">--</span>
+            <span class="stats-banner-label">Ilegales</span>
+        </div>
+        <div class="stats-banner-item">
+            <span class="stats-banner-value stats-legal" id="statLegal">--</span>
+            <span class="stats-banner-label">Legales</span>
+        </div>
+    </div>
+
     <!-- Main Content -->
     <main class="main-content">
         <!-- Tabs -->
@@ -44,22 +96,14 @@
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                 Verificar Manual
             </button>
-            <button class="tab" data-tab="training">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20V10M6 20V4M18 20v-6"/></svg>
-                Red Neuronal
-            </button>
-            <button class="tab" data-tab="database">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
-                Base de Datos BCB
-            </button>
         </div>
 
         <!-- Tab: Scan -->
         <div class="tab-content active" id="tab-scan">
-            <div class="scan-layout">
-                <div class="scan-input-area">
-                    <h2 class="section-title">Escanear Billete con OCR DeepSeek</h2>
-                    <p class="section-desc">Tome una foto o suba una imagen del billete boliviano para verificar su legalidad.</p>
+            <div class="scan-layout" id="scanContainer">
+                <div class="scan-input-area" id="scanInputArea">
+                    <h2 class="section-title">Escanear Billete</h2>
+                    <p class="section-desc">Tome una foto o suba una imagen del billete para verificar su legalidad al instante.</p>
 
                     <!-- Camera -->
                     <div class="camera-section">
@@ -71,7 +115,7 @@
                                     <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
                                     <circle cx="12" cy="13" r="4"/>
                                 </svg>
-                                <p>Haga clic para activar la camara</p>
+                                <p>Toque para activar la camara</p>
                             </div>
                             <div class="camera-frame">
                                 <div class="frame-corner tl"></div>
@@ -101,7 +145,7 @@
                             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
                         </svg>
                         <p><strong>Arrastre una imagen aqui</strong></p>
-                        <p class="upload-hint">o haga clic para seleccionar - JPG, PNG, WebP</p>
+                        <p class="upload-hint">o toque para seleccionar - JPG, PNG, WebP</p>
                         <input type="file" id="fileInput" accept="image/*" hidden>
                     </div>
 
@@ -113,7 +157,7 @@
 
                     <button class="btn btn-scan btn-block" id="btnScan" disabled>
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 4V1h3M20 1h3v3M1 20v3h3M23 20v3h-3"/><line x1="1" y1="12" x2="23" y2="12"/></svg>
-                        Analizar Billete con DeepSeek OCR
+                        Analizar Billete
                     </button>
                 </div>
 
@@ -121,7 +165,7 @@
                 <div class="results-panel" id="resultsPanel">
                     <div class="results-placeholder">
                         <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
-                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
                         </svg>
                         <p>Los resultados del analisis apareceran aqui</p>
                     </div>
@@ -131,8 +175,8 @@
 
         <!-- Tab: Manual Verification -->
         <div class="tab-content" id="tab-manual">
-            <div class="manual-layout">
-                <div class="manual-form-area">
+            <div class="manual-layout" id="manualContainer">
+                <div class="manual-form-area" id="manualInputArea">
                     <h2 class="section-title">Verificacion Manual</h2>
                     <p class="section-desc">Ingrese el numero de serie y la denominacion del billete para verificar su estado.</p>
 
@@ -174,116 +218,65 @@
             </div>
         </div>
 
-        <!-- Tab: Neural Network Training -->
-        <div class="tab-content" id="tab-training">
+        <!-- Hidden tabs: keep for API functionality -->
+        <div class="tab-content" id="tab-training" style="display:none">
             <div class="training-layout">
                 <div class="training-controls">
                     <h2 class="section-title">Entrenamiento de Red Neuronal</h2>
-                    <p class="section-desc">Entrene el modelo de inteligencia artificial para detectar patrones en billetes ilegales.</p>
-
                     <div class="model-info-card" id="modelInfoCard">
-                        <div class="info-row">
-                            <span class="info-label">Arquitectura</span>
-                            <span class="info-value" id="infoArch">Cargando...</span>
-                        </div>
-                        <div class="info-row">
-                            <span class="info-label">Parametros</span>
-                            <span class="info-value" id="infoParams">-</span>
-                        </div>
-                        <div class="info-row">
-                            <span class="info-label">Estado</span>
-                            <span class="info-value" id="infoStatus">-</span>
-                        </div>
-                        <div class="info-row">
-                            <span class="info-label">Precision</span>
-                            <span class="info-value" id="infoAccuracy">-</span>
-                        </div>
+                        <div class="info-row"><span class="info-label">Arquitectura</span><span class="info-value" id="infoArch">-</span></div>
+                        <div class="info-row"><span class="info-label">Parametros</span><span class="info-value" id="infoParams">-</span></div>
+                        <div class="info-row"><span class="info-label">Estado</span><span class="info-value" id="infoStatus">-</span></div>
+                        <div class="info-row"><span class="info-label">Precision</span><span class="info-value" id="infoAccuracy">-</span></div>
                     </div>
-
                     <div class="training-params">
-                        <h3 class="params-title">Parametros de Entrenamiento</h3>
-                        <div class="form-group">
-                            <label class="form-label">Epocas</label>
-                            <input type="number" id="trainEpochs" class="form-input" value="100" min="10" max="500">
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">Learning Rate</label>
-                            <input type="number" id="trainLR" class="form-input" value="0.05" min="0.001" max="1" step="0.005">
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">Muestras de entrenamiento</label>
-                            <input type="number" id="trainSamples" class="form-input" value="8000" min="1000" max="50000" step="1000">
-                        </div>
+                        <div class="form-group"><label class="form-label">Epocas</label><input type="number" id="trainEpochs" class="form-input" value="100" min="10" max="500"></div>
+                        <div class="form-group"><label class="form-label">Learning Rate</label><input type="number" id="trainLR" class="form-input" value="0.05" min="0.001" max="1" step="0.005"></div>
+                        <div class="form-group"><label class="form-label">Muestras</label><input type="number" id="trainSamples" class="form-input" value="8000" min="1000" max="50000" step="1000"></div>
                     </div>
-
-                    <button class="btn btn-train btn-block" id="btnTrain">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                        Iniciar Entrenamiento
-                    </button>
-
-                    <!-- Training Progress -->
+                    <button class="btn btn-train btn-block" id="btnTrain">Iniciar Entrenamiento</button>
                     <div class="training-progress" id="trainingProgress" style="display:none">
-                        <div class="progress-bar-container">
-                            <div class="progress-bar" id="progressBar"></div>
-                        </div>
+                        <div class="progress-bar-container"><div class="progress-bar" id="progressBar"></div></div>
                         <p class="progress-text" id="progressText">Entrenando...</p>
                     </div>
                 </div>
-
-                <!-- Training Charts -->
                 <div class="training-charts">
-                    <div class="chart-card">
-                        <h3 class="chart-title">Perdida (Loss)</h3>
-                        <canvas id="lossChart" width="500" height="250"></canvas>
-                    </div>
-                    <div class="chart-card">
-                        <h3 class="chart-title">Precision (Accuracy)</h3>
-                        <canvas id="accuracyChart" width="500" height="250"></canvas>
-                    </div>
+                    <div class="chart-card"><h3 class="chart-title">Perdida</h3><canvas id="lossChart" width="500" height="250"></canvas></div>
+                    <div class="chart-card"><h3 class="chart-title">Precision</h3><canvas id="accuracyChart" width="500" height="250"></canvas></div>
                 </div>
             </div>
         </div>
 
-        <!-- Tab: BCB Database -->
-        <div class="tab-content" id="tab-database">
-            <h2 class="section-title">Base de Datos BCB - Billetes Serie B Sin Valor Legal</h2>
-            <p class="section-desc">Comunicado de Prensa CP9/2026 - 28 de febrero de 2026. Banco Central de Bolivia.</p>
-
-            <div class="stats-grid" id="statsGrid">
-                <!-- Filled by JS -->
-            </div>
-
+        <div class="tab-content" id="tab-database" style="display:none">
+            <h2 class="section-title">Base de Datos BCB</h2>
+            <div class="stats-grid" id="statsGrid"></div>
             <div class="db-tables">
-                <div class="db-table-section">
-                    <h3 class="table-title bs50">Bs 50</h3>
-                    <table class="data-table">
-                        <thead><tr><th>Desde</th><th>Hasta</th><th>Cantidad</th></tr></thead>
-                        <tbody id="tableBs50"></tbody>
-                    </table>
-                </div>
-                <div class="db-table-section">
-                    <h3 class="table-title bs20">Bs 20</h3>
-                    <table class="data-table">
-                        <thead><tr><th>Desde</th><th>Hasta</th><th>Cantidad</th></tr></thead>
-                        <tbody id="tableBs20"></tbody>
-                    </table>
-                </div>
-                <div class="db-table-section">
-                    <h3 class="table-title bs10">Bs 10</h3>
-                    <table class="data-table">
-                        <thead><tr><th>Desde</th><th>Hasta</th><th>Cantidad</th></tr></thead>
-                        <tbody id="tableBs10"></tbody>
-                    </table>
-                </div>
+                <div class="db-table-section"><h3 class="table-title bs50">Bs 50</h3><table class="data-table"><thead><tr><th>Desde</th><th>Hasta</th><th>Cantidad</th></tr></thead><tbody id="tableBs50"></tbody></table></div>
+                <div class="db-table-section"><h3 class="table-title bs20">Bs 20</h3><table class="data-table"><thead><tr><th>Desde</th><th>Hasta</th><th>Cantidad</th></tr></thead><tbody id="tableBs20"></tbody></table></div>
+                <div class="db-table-section"><h3 class="table-title bs10">Bs 10</h3><table class="data-table"><thead><tr><th>Desde</th><th>Hasta</th><th>Cantidad</th></tr></thead><tbody id="tableBs10"></tbody></table></div>
             </div>
         </div>
     </main>
 
     <!-- Footer -->
     <footer class="footer">
-        <p>Dr. Billetes &copy; 2026 - Basado en Comunicado de Prensa CP9/2026 del Banco Central de Bolivia</p>
-        <p class="footer-tech">OCR: DeepSeek AI &middot; Red Neuronal: Custom NumPy &middot; Backend: Flask</p>
+        <div class="footer-content">
+            <div class="footer-main">
+                <p class="footer-brand">Dr. Billetes &copy; 2026</p>
+                <p class="footer-legal">Basado en Comunicado de Prensa CP9/2026 del Banco Central de Bolivia</p>
+                <p class="footer-powered">Powered by Sentinel AI</p>
+            </div>
+            <div class="footer-donate">
+                <p class="donate-label">&#9749; Apoya este proyecto</p>
+                <a href="https://s.binance.com/0KEQDmza" target="_blank" rel="noopener" class="donate-link">
+                    Donar con Crypto (Binance)
+                </a>
+            </div>
+        </div>
     </footer>
+
+    <!-- Floating Donate Button -->
+    <a href="https://s.binance.com/0KEQDmza" target="_blank" rel="noopener" class="fab-donate" title="Apoya este proyecto">&#9749;</a>
 
     <!-- Loading Overlay -->
     <div class="loading-overlay" id="loadingOverlay" style="display:none">

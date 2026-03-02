@@ -1,6 +1,7 @@
 /**
  * Dr. Billetes - Frontend Application
  * Detector de Billetes Ilegales BCB Bolivia
+ * Powered by Sentinel AI
  */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -27,11 +28,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnRemoveImage = document.getElementById('btnRemoveImage');
     const btnScan = document.getElementById('btnScan');
     const resultsPanel = document.getElementById('resultsPanel');
+    const scanContainer = document.getElementById('scanContainer');
 
     const denomBtns = document.querySelectorAll('.denom-btn');
     const serialInput = document.getElementById('serialInput');
     const btnVerify = document.getElementById('btnVerify');
     const manualResultsPanel = document.getElementById('manualResultsPanel');
+    const manualContainer = document.getElementById('manualContainer');
 
     const btnTrain = document.getElementById('btnTrain');
     const trainingProgress = document.getElementById('trainingProgress');
@@ -40,6 +43,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const loadingOverlay = document.getElementById('loadingOverlay');
     const loadingText = document.getElementById('loadingText');
+
+    // Stats banner elements
+    const statTotal = document.getElementById('statTotal');
+    const statIllegal = document.getElementById('statIllegal');
+    const statLegal = document.getElementById('statLegal');
 
     // ===================== Tabs =====================
     tabs.forEach(tab => {
@@ -55,6 +63,17 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
+    // ===================== Stats Banner =====================
+    async function loadStats() {
+        try {
+            const resp = await fetch('/api/stats');
+            const data = await resp.json();
+            if (statTotal) statTotal.textContent = data.total_scans || 0;
+            if (statIllegal) statIllegal.textContent = data.illegal_count || 0;
+            if (statLegal) statLegal.textContent = data.legal_count || 0;
+        } catch (e) { /* silent */ }
+    }
+
     // ===================== Camera =====================
     cameraOverlay.addEventListener('click', startCamera);
     btnStartCamera.addEventListener('click', startCamera);
@@ -65,8 +84,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!isLocalhost) {
                 alert(
                     'La camara requiere un contexto seguro (HTTPS).\n\n' +
-                    'Acceda desde http://localhost:5000 en lugar de usar la IP,\n' +
-                    'o suba una imagen del billete usando el boton de carga.'
+                    'Acceda desde https://dr.sentinel-ia.com o suba una imagen.'
                 );
             } else {
                 alert('Su navegador no soporta acceso a la camara.\nUse la opcion de subir imagen.');
@@ -156,7 +174,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // ===================== Scan =====================
     btnScan.addEventListener('click', async () => {
         if (!currentImage) return;
-        showLoading('Analizando billete con DeepSeek OCR...');
+        showLoading('Analizando con OCR Sentinel AI...');
         try {
             const resp = await fetch('/api/scan', {
                 method: 'POST',
@@ -165,10 +183,11 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             const data = await resp.json();
             hideLoading();
-            showResults(resultsPanel, data);
+            showResults(resultsPanel, data, scanContainer);
+            loadStats();
         } catch (err) {
             hideLoading();
-            showResults(resultsPanel, { success: false, message: 'Error de conexion: ' + err.message });
+            showResults(resultsPanel, { success: false, message: 'Error de conexion: ' + err.message }, scanContainer);
         }
     });
 
@@ -204,15 +223,30 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             const data = await resp.json();
             hideLoading();
-            showResults(manualResultsPanel, data);
+            showResults(manualResultsPanel, data, manualContainer);
+            loadStats();
         } catch (err) {
             hideLoading();
-            showResults(manualResultsPanel, { success: false, message: 'Error: ' + err.message });
+            showResults(manualResultsPanel, { success: false, message: 'Error: ' + err.message }, manualContainer);
         }
     });
 
+    // ===================== Reset Scan (mobile) =====================
+    function resetScan(container) {
+        if (container) container.classList.remove('has-results');
+    }
+
+    // Make available globally for inline onclick
+    window.resetScan = function(containerId) {
+        const el = document.getElementById(containerId);
+        if (el) el.classList.remove('has-results');
+    };
+
     // ===================== Results Display =====================
-    function showResults(panel, data) {
+    function showResults(panel, data, container) {
+        // Add has-results class for mobile layout
+        if (container) container.classList.add('has-results');
+
         if (!data.success) {
             const isOcrError = data.step_failed === 'ocr';
             const errorMsg = data.message || data.error || 'No se pudo procesar.';
@@ -223,12 +257,16 @@ document.addEventListener('DOMContentLoaded', () => {
                         <div class="verdict-text sospechoso">${isOcrError ? 'ERROR OCR' : 'ERROR'}</div>
                         <p style="margin-top:0.5rem;color:var(--text-secondary)">${errorMsg}</p>
                         ${isOcrError ? `
-                        <p style="margin-top:1rem;color:var(--text-secondary);font-size:0.9rem">Puede verificar el billete manualmente:</p>
-                        <button onclick="document.querySelector('[data-tab=manual]').click()" style="margin-top:0.8rem;padding:0.8rem 1.5rem;background:var(--yellow);color:var(--bg-primary);border:none;border-radius:8px;font-weight:700;font-size:1rem;cursor:pointer">
+                        <p style="margin-top:1rem;color:var(--text-secondary);font-size:0.85rem">Puede verificar el billete manualmente:</p>
+                        <button onclick="document.querySelector('[data-tab=manual]').click()" style="margin-top:0.8rem;padding:0.7rem 1.5rem;background:var(--red);color:white;border:none;border-radius:8px;font-weight:600;font-size:0.9rem;cursor:pointer">
                             Verificar Manual
                         </button>` : ''}
                     </div>
+                    <button class="scan-another-btn" onclick="resetScan('${container ? container.id : ''}')">
+                        &#8592; Escanear otro billete
+                    </button>
                 </div>`;
+            scrollToResults(panel);
             return;
         }
 
@@ -262,12 +300,6 @@ document.addEventListener('DOMContentLoaded', () => {
                             <span class="confidence-bar"><span class="confidence-fill" style="width:${nnPct}%;background:${nnColor}"></span></span>
                         </span>
                     </div>`;
-            } else {
-                nnInfo = `
-                    <div class="detail-row">
-                        <span class="detail-label">Red Neuronal</span>
-                        <span class="detail-value" style="color:var(--text-muted)">No entrenada</span>
-                    </div>`;
             }
         }
 
@@ -276,23 +308,31 @@ document.addEventListener('DOMContentLoaded', () => {
             ocrInfo = `
                 <div class="detail-row">
                     <span class="detail-label">Fuente OCR</span>
-                    <span class="detail-value">DeepSeek AI</span>
+                    <span class="detail-value">OCR Sentinel AI</span>
                 </div>`;
         }
+
+        // Build share message
+        const shareText = v === 'ILEGAL'
+            ? `Mi billete de Bs${data.denomination} (serie ${formatNumber(data.serial)}) es ILEGAL segun el BCB CP9/2026. Verifica tus billetes en:`
+            : v === 'SOSPECHOSO'
+            ? `Mi billete de Bs${data.denomination} salio SOSPECHOSO. Verifica tus billetes bolivianos aqui:`
+            : `Mi billete de Bs${data.denomination} es LEGAL. Verifica tus billetes bolivianos aqui:`;
+        const shareUrl = 'https://dr.sentinel-ia.com';
 
         panel.innerHTML = `
             <div class="result-card">
                 <div class="result-verdict ${vClass}">
                     <div class="verdict-icon">${vIcon}</div>
                     <div class="verdict-text ${vClass}">${v}</div>
-                    <p style="margin-top:0.5rem;font-size:0.9rem;color:var(--text-secondary)">
+                    <p style="margin-top:0.5rem;font-size:0.85rem;color:var(--text-secondary)">
                         ${data.db_check ? data.db_check.message : ''}
                     </p>
                 </div>
                 <div class="result-details">
                     <div class="detail-row">
                         <span class="detail-label">Denominacion</span>
-                        <span class="detail-value" style="color:var(--yellow)">Bs ${data.denomination}</span>
+                        <span class="detail-value" style="color:var(--red)">Bs ${data.denomination}</span>
                     </div>
                     <div class="detail-row">
                         <span class="detail-label">N&ordm; de Serie</span>
@@ -318,7 +358,29 @@ document.addEventListener('DOMContentLoaded', () => {
                         <span class="detail-value" style="font-size:0.75rem">${data.comunicado || 'CP9/2026'}</span>
                     </div>
                 </div>
+                <div class="share-section">
+                    <p class="share-label">Compartir resultado</p>
+                    <div class="share-buttons">
+                        <a class="share-btn whatsapp" href="https://wa.me/?text=${encodeURIComponent(shareText + ' ' + shareUrl)}" target="_blank" rel="noopener">WhatsApp</a>
+                        <a class="share-btn" href="https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}&quote=${encodeURIComponent(shareText)}" target="_blank" rel="noopener">Facebook</a>
+                        <a class="share-btn" href="https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(shareUrl)}" target="_blank" rel="noopener">X</a>
+                        <button class="share-btn" onclick="navigator.clipboard.writeText('${shareText} ${shareUrl}').then(()=>this.textContent='Copiado!')">Copiar</button>
+                    </div>
+                </div>
+                <button class="scan-another-btn" onclick="resetScan('${container ? container.id : ''}')">
+                    &#8592; Escanear otro billete
+                </button>
             </div>`;
+
+        scrollToResults(panel);
+    }
+
+    function scrollToResults(panel) {
+        if (window.innerWidth <= 900) {
+            setTimeout(() => {
+                panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }, 100);
+        }
     }
 
     // ===================== Training =====================
@@ -332,7 +394,6 @@ document.addEventListener('DOMContentLoaded', () => {
         progressBar.style.width = '0%';
         progressText.textContent = 'Generando datos de entrenamiento...';
 
-        // Simulate progress while waiting
         let pct = 0;
         const progressInterval = setInterval(() => {
             pct = Math.min(pct + 0.5, 90);
@@ -370,8 +431,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // ===================== Charts =====================
     function drawCharts(history) {
         if (!history) return;
-        drawChart('lossChart', history.loss, '#EF4444', 'Loss');
-        drawChart('accuracyChart', history.accuracy, '#22C55E', 'Accuracy');
+        drawChart('lossChart', history.loss, '#DC2626', 'Loss');
+        drawChart('accuracyChart', history.accuracy, '#16A34A', 'Accuracy');
     }
 
     function drawChart(canvasId, data, color, label) {
@@ -392,7 +453,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const range = maxVal - minVal || 1;
 
         // Grid
-        ctx.strokeStyle = '#2A2E3B';
+        ctx.strokeStyle = '#E2E5EB';
         ctx.lineWidth = 0.5;
         for (let i = 0; i <= 4; i++) {
             const y = padding.top + (chartH / 4) * i;
@@ -401,7 +462,7 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.lineTo(w - padding.right, y);
             ctx.stroke();
 
-            ctx.fillStyle = '#6B7080';
+            ctx.fillStyle = '#8B90A0';
             ctx.font = '10px Inter, sans-serif';
             ctx.textAlign = 'right';
             const val = maxVal - (range / 4) * i;
@@ -424,7 +485,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Fill under line
         const lastX = padding.left + chartW;
-        const lastY = padding.top + chartH - ((data[data.length - 1] - minVal) / range) * chartH;
         ctx.lineTo(lastX, padding.top + chartH);
         ctx.lineTo(padding.left, padding.top + chartH);
         ctx.closePath();
@@ -432,7 +492,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ctx.fill();
 
         // X-axis label
-        ctx.fillStyle = '#6B7080';
+        ctx.fillStyle = '#8B90A0';
         ctx.font = '10px Inter, sans-serif';
         ctx.textAlign = 'center';
         ctx.fillText('Epocas', w / 2, h - 5);
@@ -464,7 +524,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const ranges = await rangesResp.json();
             const stats = await statsResp.json();
 
-            // Stats cards
             const grid = document.getElementById('statsGrid');
             const bcb = stats.bcb_database;
             grid.innerHTML = `
@@ -493,7 +552,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="stat-label">Escaneos Realizados</div>
                 </div>`;
 
-            // Tables
             fillTable('tableBs50', ranges.filter(r => r.denomination === 50));
             fillTable('tableBs20', ranges.filter(r => r.denomination === 20));
             fillTable('tableBs10', ranges.filter(r => r.denomination === 10));
@@ -526,5 +584,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ===================== Init =====================
+    loadStats();
     loadModelInfo();
 });
