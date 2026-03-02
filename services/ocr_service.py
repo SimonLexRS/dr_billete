@@ -18,6 +18,15 @@ DENOM_MAP = {
     "doscientos": 200,
 }
 
+PROMPT = (
+    "Esta es una imagen de un billete boliviano. Identifica:\n"
+    "1. Denominacion (10, 20, 50, 100 o 200)\n"
+    "2. Numero de serie (numero largo de 7-9 digitos)\n"
+    "3. Letra de serie (A, B, C, etc.)\n"
+    "Responde SOLO con estos datos, ejemplo: "
+    "Denominacion: 20, Serie: B, Serial: 115046442"
+)
+
 
 class OCRService:
     def __init__(self):
@@ -31,21 +40,19 @@ class OCRService:
         Envia una imagen en base64 a Ollama para extraer datos del billete.
         Retorna: denomination, serial, series, raw_text
         """
-        prompt = "Lee y transcribe todo el texto visible en esta imagen. Lista cada numero y palabra que veas."
-
         payload = {
             "model": self.model,
             "messages": [
                 {
                     "role": "user",
-                    "content": prompt,
+                    "content": PROMPT,
                     "images": [image_base64],
                 }
             ],
             "stream": False,
             "options": {
                 "temperature": 0.1,
-                "num_predict": 800,
+                "num_predict": 200,
             },
         }
 
@@ -94,10 +101,30 @@ class OCRService:
             return self._fallback_error(f"Error inesperado: {str(e)}")
 
     def _parse_response(self, content: str) -> dict:
-        """Parsea la respuesta del modelo: intenta JSON primero, luego regex."""
+        """Parsea la respuesta del modelo."""
         content = content.strip()
 
-        # Intento 1: buscar JSON en la respuesta
+        # Intento 1: buscar formato estructurado "Denominacion: X, Serie: Y, Serial: Z"
+        denom_match = re.search(r'[Dd]enominaci[oó]n:\s*(\d{2,3})', content)
+        serial_match = re.search(r'[Ss]erial:\s*(\d{6,10})', content)
+        series_match = re.search(r'[Ss]erie:\s*([A-Za-z])', content)
+
+        if denom_match and serial_match:
+            denomination = int(denom_match.group(1))
+            serial = int(serial_match.group(1))
+            series = series_match.group(1).upper() if series_match else ""
+
+            if denomination in (10, 20, 50, 100, 200):
+                return {
+                    "success": True,
+                    "denomination": denomination,
+                    "serial": serial,
+                    "series": series,
+                    "raw_text": content,
+                    "source": "ollama_local",
+                }
+
+        # Intento 2: buscar JSON en la respuesta
         json_match = re.search(r"\{[\s\S]*\}", content)
         if json_match:
             try:
@@ -121,7 +148,7 @@ class OCRService:
             except (json.JSONDecodeError, ValueError):
                 pass
 
-        # Intento 2: extraer datos con regex del texto crudo
+        # Intento 3: extraer datos con regex del texto crudo
         result = self._extract_from_text(content)
         if result:
             return result

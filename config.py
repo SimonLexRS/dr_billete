@@ -6,7 +6,7 @@ DEEPSEEK_MODEL = "deepseek-chat"
 
 # Vision/OCR via Ollama local accesible por Tailscale VPN
 OLLAMA_API_URL = os.environ.get("OLLAMA_API_URL", "http://100.121.240.89:11434/v1/chat/completions")
-VISION_MODEL = os.environ.get("VISION_MODEL", "deepseek-ocr")
+VISION_MODEL = os.environ.get("VISION_MODEL", "gemma3:12b")
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 MODEL_WEIGHTS_PATH = os.path.join(DATA_DIR, "model_weights.json")
