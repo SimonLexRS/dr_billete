@@ -21,7 +21,9 @@ DENOM_MAP = {
 
 class OCRService:
     def __init__(self):
-        self.api_url = config.OLLAMA_API_URL
+        # Usar API nativa de Ollama (/api/chat) que procesa imagenes correctamente
+        base = config.OLLAMA_API_URL.rsplit("/v1/", 1)[0]
+        self.api_url = f"{base}/api/chat"
         self.model = config.VISION_MODEL
 
     def extract_from_image(self, image_base64: str) -> dict:
@@ -31,33 +33,20 @@ class OCRService:
         """
         prompt = "Lee y transcribe todo el texto visible en esta imagen. Lista cada numero y palabra que veas."
 
-        mime = "image/jpeg"
-        if image_base64[:4] == "iVBO":
-            mime = "image/png"
-        elif image_base64[:4] == "AAAA":
-            mime = "image/webp"
-
         payload = {
             "model": self.model,
             "messages": [
                 {
                     "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": prompt,
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:{mime};base64,{image_base64}"
-                            },
-                        },
-                    ],
+                    "content": prompt,
+                    "images": [image_base64],
                 }
             ],
-            "max_tokens": 800,
-            "temperature": 0.1,
+            "stream": False,
+            "options": {
+                "temperature": 0.1,
+                "num_predict": 800,
+            },
         }
 
         try:
@@ -70,17 +59,22 @@ class OCRService:
             data = response.json()
 
             if "error" in data:
-                err_msg = data["error"].get("message", str(data["error"]))
+                err_msg = data["error"] if isinstance(data["error"], str) else data["error"].get("message", str(data["error"]))
                 return self._fallback_error(f"Error de Ollama: {err_msg}")
 
-            content = data["choices"][0]["message"]["content"]
+            content = data.get("message", {}).get("content", "")
+            if not content:
+                return self._fallback_error("El modelo OCR no devolvio respuesta.")
+
             return self._parse_response(content)
 
         except requests.exceptions.HTTPError as e:
             status = e.response.status_code if e.response else "unknown"
             detail = ""
             try:
-                detail = e.response.json().get("error", {}).get("message", "")
+                detail = e.response.json().get("error", "")
+                if isinstance(detail, dict):
+                    detail = detail.get("message", "")
             except Exception:
                 pass
             return self._fallback_error(
@@ -232,7 +226,7 @@ class OCRService:
     def test_connection(self) -> dict:
         """Prueba la conexion con Ollama."""
         try:
-            base_url = self.api_url.rsplit("/v1/", 1)[0]
+            base_url = self.api_url.rsplit("/api/", 1)[0]
             resp = requests.get(f"{base_url}/api/version", timeout=5)
             resp.raise_for_status()
             version = resp.json().get("version", "unknown")
