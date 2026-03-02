@@ -267,16 +267,42 @@
                 <p class="footer-powered">Powered by Sentinel AI</p>
             </div>
             <div class="footer-donate">
-                <p class="donate-label">&#9749; Apoya este proyecto</p>
-                <a href="https://s.binance.com/0KEQDmza" target="_blank" rel="noopener" class="donate-link">
-                    Donar con Crypto (Binance)
-                </a>
+                <button class="donate-link" onclick="openDonateModal()">&#9749; Apoya este proyecto</button>
             </div>
         </div>
     </footer>
 
     <!-- Floating Donate Button -->
-    <a href="https://s.binance.com/0KEQDmza" target="_blank" rel="noopener" class="fab-donate" title="Apoya este proyecto">&#9749;</a>
+    <button class="fab-donate" onclick="openDonateModal()" title="Apoya este proyecto">&#9749;</button>
+
+    <!-- Donate Modal -->
+    <div class="donate-overlay" id="donateOverlay" onclick="closeDonateModal()">
+        <div class="donate-modal" onclick="event.stopPropagation()">
+            <button class="donate-close" onclick="closeDonateModal()">&times;</button>
+            <h3 class="donate-title">Apoya este proyecto</h3>
+            <p class="donate-subtitle">Tu donacion ayuda a crear proyectos de gran utilidad para Bolivia</p>
+            <div class="donate-tabs">
+                <button class="donate-tab active" onclick="switchDonateTab('bcp')">QR Bolivia</button>
+                <button class="donate-tab" onclick="switchDonateTab('binance')">Binance</button>
+                <button class="donate-tab" onclick="switchDonateTab('meru')">Meru</button>
+            </div>
+            <div class="donate-panel active" id="donate-bcp">
+                <img src="/static/img/qr-bcp.png" alt="QR BCP Bolivia" class="donate-qr">
+                <p class="donate-name">Rodriguez Saavedra Simon Alex</p>
+                <p class="donate-account">Cta: 701-50996505-3-07</p>
+            </div>
+            <div class="donate-panel" id="donate-binance">
+                <img src="/static/img/qr-binance.png" alt="QR Binance" class="donate-qr">
+                <p class="donate-name">Capitan Crunch</p>
+                <a href="https://s.binance.com/0KEQDmza" target="_blank" rel="noopener" class="donate-btn-open">Abrir en Binance</a>
+            </div>
+            <div class="donate-panel" id="donate-meru">
+                <img src="/static/img/qr-meru.png" alt="QR Meru" class="donate-qr">
+                <p class="donate-name">Escanea con la app Meru</p>
+            </div>
+            <p class="donate-thanks">Gracias por tu apoyo &#10084;</p>
+        </div>
+    </div>
 
     <!-- Loading Overlay -->
     <div class="loading-overlay" id="loadingOverlay" style="display:none">

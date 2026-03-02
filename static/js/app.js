@@ -586,4 +586,36 @@ document.addEventListener('DOMContentLoaded', () => {
     // ===================== Init =====================
     loadStats();
     loadModelInfo();
+
+    // ===================== Donate Modal =====================
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') closeDonateModal();
+    });
 });
+
+function openDonateModal() {
+    document.getElementById('donateOverlay').classList.add('active');
+    document.body.style.overflow = 'hidden';
+}
+
+function closeDonateModal() {
+    document.getElementById('donateOverlay').classList.remove('active');
+    document.body.style.overflow = '';
+}
+
+function switchDonateTab(tab) {
+    document.querySelectorAll('.donate-tab').forEach(function(btn) {
+        btn.classList.remove('active');
+    });
+    document.querySelectorAll('.donate-panel').forEach(function(panel) {
+        panel.classList.remove('active');
+    });
+    // Activate clicked tab
+    var tabs = document.querySelectorAll('.donate-tab');
+    var tabMap = { bcp: 0, binance: 1, meru: 2 };
+    if (tabMap[tab] !== undefined) {
+        tabs[tabMap[tab]].classList.add('active');
+    }
+    var panel = document.getElementById('donate-' + tab);
+    if (panel) panel.classList.add('active');
+}
