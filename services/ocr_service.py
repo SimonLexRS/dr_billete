@@ -19,12 +19,12 @@ DENOM_MAP = {
 }
 
 PROMPT = (
-    "Esta es una imagen de un billete boliviano. Identifica:\n"
-    "1. Denominacion (10, 20, 50, 100 o 200)\n"
-    "2. Numero de serie (numero largo de 7-9 digitos)\n"
-    "3. Letra de serie (A, B, C, etc.)\n"
-    "Responde SOLO con estos datos, ejemplo: "
-    "Denominacion: 20, Serie: B, Serial: 115046442"
+    "Esta es una imagen de un billete boliviano. "
+    "Identifica la denominacion, el numero de serie y la letra de serie. "
+    "Responde con el formato:\n"
+    "Denominacion: [numero]\n"
+    "Serie: [letra]\n"
+    "Serial: [numero]"
 )
 
 
@@ -52,7 +52,7 @@ class OCRService:
             "stream": False,
             "options": {
                 "temperature": 0.1,
-                "num_predict": 200,
+                "num_predict": 300,
             },
         }
 
