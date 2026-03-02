@@ -155,11 +155,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
     btnCapture.addEventListener('click', async () => {
         if (!cameraStream) return;
-        cameraCanvas.width = cameraVideo.videoWidth;
-        cameraCanvas.height = cameraVideo.videoHeight;
+        // Resize to max 1280px to keep image small for OCR
+        const maxDim = 1280;
+        let w = cameraVideo.videoWidth;
+        let h = cameraVideo.videoHeight;
+        if (w > maxDim || h > maxDim) {
+            const scale = maxDim / Math.max(w, h);
+            w = Math.round(w * scale);
+            h = Math.round(h * scale);
+        }
+        cameraCanvas.width = w;
+        cameraCanvas.height = h;
         const ctx = cameraCanvas.getContext('2d');
-        ctx.drawImage(cameraVideo, 0, 0);
-        const dataUrl = cameraCanvas.toDataURL('image/jpeg', 0.9);
+        ctx.drawImage(cameraVideo, 0, 0, w, h);
+        const dataUrl = cameraCanvas.toDataURL('image/jpeg', 0.85);
         currentImage = dataUrl;
 
         // Show captured image in-place inside camera container

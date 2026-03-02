@@ -46,14 +46,15 @@ class OCRService:
 
     @staticmethod
     def _normalize_orientation(image_base64: str) -> str:
-        """Normalize EXIF orientation and return corrected base64."""
+        """Normalize EXIF orientation, resize to max 1024px, return base64."""
         try:
             img = Image.open(BytesIO(base64.b64decode(image_base64)))
             img = ImageOps.exif_transpose(img)
             if img.mode == "RGBA":
                 img = img.convert("RGB")
+            img.thumbnail((1024, 1024))
             buf = BytesIO()
-            img.save(buf, format="JPEG", quality=90)
+            img.save(buf, format="JPEG", quality=85)
             return base64.b64encode(buf.getvalue()).decode("utf-8")
         except Exception:
             return image_base64
@@ -66,12 +67,15 @@ class OCRService:
         Retorna: denomination, serial, series, raw_text
         """
         image_base64 = self._normalize_orientation(image_base64)
+        print(f"[OCR] Image size: {len(image_base64)} bytes base64")
 
         # Intento 1: modelo principal con prompt estructurado
+        print(f"[OCR] Trying primary model: {self.model}")
         result = self._call_vision_model(image_base64, self.model, PROMPT)
         if result.get("success"):
             return result
 
+        print(f"[OCR] Primary model failed: {result.get('error', 'unknown')}")
         # Intento 2: fallback con modelo OCR simple + regex parsing
         if self.fallback_model != self.model:
             fallback_result = self._call_vision_model(
