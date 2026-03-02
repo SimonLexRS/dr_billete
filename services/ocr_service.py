@@ -19,8 +19,8 @@ class OCRService:
         Envia una imagen en base64 a Ollama para extraer datos del billete.
         Retorna: denomination, serial, series, raw_text
         """
-        prompt = """Analiza esta imagen de un billete boliviano y extrae la siguiente informacion.
-Responde UNICAMENTE con un JSON valido, sin texto adicional ni markdown:
+        prompt = """Text Recognition: Extrae todo el texto de esta imagen de un billete boliviano.
+Luego responde UNICAMENTE con un JSON valido, sin texto adicional ni markdown:
 
 {
   "denomination": <numero entero: 10, 20, 50, 100 o 200>,
@@ -29,10 +29,7 @@ Responde UNICAMENTE con un JSON valido, sin texto adicional ni markdown:
   "raw_text": "<todo el texto visible en el billete>"
 }
 
-Si no puedes identificar algún campo, usa null para ese campo.
-Es MUY IMPORTANTE extraer el numero de serie correctamente.
-El numero de serie suele estar impreso en rojo o negro,
-y puede tener un prefijo de letras seguido de numeros."""
+Si no puedes identificar algún campo, usa null."""
 
         mime = "image/jpeg"
         if image_base64[:4] == "iVBO":
@@ -67,7 +64,7 @@ y puede tener un prefijo de letras seguido de numeros."""
             response = requests.post(
                 self.api_url,
                 json=payload,
-                timeout=120,
+                timeout=60,
             )
             response.raise_for_status()
             data = response.json()
