@@ -84,6 +84,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (statTotal) statTotal.textContent = data.total_scans || 0;
             if (statIllegal) statIllegal.textContent = data.illegal_count || 0;
             if (statLegal) statLegal.textContent = data.legal_count || 0;
+            const statSuspicious = document.getElementById('statSuspicious');
+            if (statSuspicious) statSuspicious.textContent = data.suspicious_count || 0;
         } catch (e) { /* silent */ }
     }
 
@@ -371,19 +373,36 @@ document.addEventListener('DOMContentLoaded', () => {
         if (container) container.classList.add('has-results');
 
         if (!data.success) {
-            const isOcrError = data.step_failed === 'ocr';
+            const noBanknotes = data.no_banknotes;
+            const isOcrError = data.step_failed === 'ocr' && !noBanknotes;
             const errorMsg = data.message || data.error || 'No se pudo procesar.';
+
+            let errorIcon, errorTitle, extraContent;
+            if (noBanknotes) {
+                errorIcon = '&#128181;';
+                errorTitle = 'SIN BILLETES';
+                extraContent = '<p style="margin-top:0.5rem;color:var(--text-secondary);font-size:0.85rem">Intente con una foto mas clara donde los billetes sean visibles.</p>';
+            } else if (isOcrError) {
+                errorIcon = '&#128269;';
+                errorTitle = 'ERROR OCR';
+                extraContent = `
+                    <p style="margin-top:1rem;color:var(--text-secondary);font-size:0.85rem">Puede verificar el billete manualmente:</p>
+                    <button onclick="document.querySelector('[data-tab=manual]').click()" style="margin-top:0.8rem;padding:0.7rem 1.5rem;background:var(--red);color:white;border:none;border-radius:8px;font-weight:600;font-size:0.9rem;cursor:pointer">
+                        Verificar Manual
+                    </button>`;
+            } else {
+                errorIcon = '&#9888;';
+                errorTitle = 'ERROR';
+                extraContent = '';
+            }
+
             panel.innerHTML = `
                 <div class="result-card">
                     <div class="result-verdict sospechoso">
-                        <div class="verdict-icon">${isOcrError ? '&#128269;' : '&#9888;'}</div>
-                        <div class="verdict-text sospechoso">${isOcrError ? 'ERROR OCR' : 'ERROR'}</div>
+                        <div class="verdict-icon">${errorIcon}</div>
+                        <div class="verdict-text sospechoso">${errorTitle}</div>
                         <p style="margin-top:0.5rem;color:var(--text-secondary)">${errorMsg}</p>
-                        ${isOcrError ? `
-                        <p style="margin-top:1rem;color:var(--text-secondary);font-size:0.85rem">Puede verificar el billete manualmente:</p>
-                        <button onclick="document.querySelector('[data-tab=manual]').click()" style="margin-top:0.8rem;padding:0.7rem 1.5rem;background:var(--red);color:white;border:none;border-radius:8px;font-weight:600;font-size:0.9rem;cursor:pointer">
-                            Verificar Manual
-                        </button>` : ''}
+                        ${extraContent}
                     </div>
                     <button class="scan-another-btn" onclick="resetScan('${container ? container.id : ''}')">
                         &#8592; Escanear otro billete

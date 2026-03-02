@@ -69,6 +69,7 @@ class DetectorService:
             return {
                 "success": False,
                 "step_failed": "ocr",
+                "no_banknotes": first.get("no_banknotes", False),
                 "ocr_result": first,
                 "message": first.get(
                     "error", "No se pudo procesar la imagen."

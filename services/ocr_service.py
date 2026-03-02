@@ -104,10 +104,13 @@ class OCRService:
                         return extracted
 
         # Retornar error
-        error_msg = "No se pudo procesar la imagen."
         if results and not any(r.get("success") for r in results):
-            error_msg = results[0].get("error", error_msg)
-        return [{"success": False, "error": error_msg, "source": "lm_studio"}]
+            first = results[0]
+            # Propagar no_banknotes si el modelo respondio pero no encontro billetes
+            if first.get("no_banknotes"):
+                return [first]
+            return [{"success": False, "error": first.get("error", "No se pudo procesar la imagen."), "source": "lm_studio"}]
+        return [{"success": False, "error": "No se pudo procesar la imagen.", "source": "lm_studio"}]
 
     def _call_vision_model(self, image_base64: str, model: str,
                            prompt: str) -> list:
@@ -212,7 +215,8 @@ class OCRService:
             # Ultimo recurso: regex sobre texto completo
             return self._extract_all_from_text(content) or [{
                 "success": False,
-                "error": f"OCR leyo: {content[:200]}",
+                "error": "No se detectaron billetes en la imagen. Asegurese de que los billetes sean visibles.",
+                "no_banknotes": True,
                 "raw_response": content,
                 "source": "lm_studio",
             }]
@@ -237,7 +241,8 @@ class OCRService:
 
         return [{
             "success": False,
-            "error": f"OCR leyo: {content[:200]}",
+            "error": "No se detectaron billetes en la imagen. Asegurese de que los billetes sean visibles.",
+            "no_banknotes": True,
             "raw_response": content,
             "source": "lm_studio",
         }]

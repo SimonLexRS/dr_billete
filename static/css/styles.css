@@ -158,6 +158,10 @@ body {
     color: var(--success);
 }
 
+.stats-banner-value.stats-suspicious {
+    color: var(--warning);
+}
+
 .stats-banner-label {
     color: var(--text-muted);
     font-size: 0.75rem;
