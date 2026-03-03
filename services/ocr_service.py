@@ -134,6 +134,7 @@ class OCRService:
                 self.api_url,
                 json=payload,
                 timeout=(15, 120),
+                stream=True,  # Necesario para manejar SSE si el servidor ignora stream=False
             )
             response.raise_for_status()
 
