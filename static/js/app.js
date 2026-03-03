@@ -696,7 +696,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // ===================== Usage Stats Charts =====================
     async function loadChartData() {
         try {
-            const resp = await fetch('/api/stats/chart?days=30');
+            const resp = await fetch('/api/stats/chart?days=7');
             const data = await resp.json();
             // Wait for next frame to ensure tab is fully rendered
             requestAnimationFrame(() => {
@@ -711,15 +711,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!canvas || !labels.length) return;
 
         const dpr = window.devicePixelRatio || 1;
-        const parent = canvas.parentElement;
-        const rawW = parent.clientWidth;
-        if (rawW < 50) return; // Tab hidden or not rendered yet
-        const w = rawW - 32;
-        const h = 220;
+        // Usar getBoundingClientRect para respetar CSS width:100% sin causar overflow
+        const w = Math.floor(canvas.getBoundingClientRect().width);
+        if (w < 50) return; // Tab oculto o no renderizado
+        const h = 200;
 
         canvas.width = w * dpr;
         canvas.height = h * dpr;
-        canvas.style.width = w + 'px';
+        // No establecer style.width — CSS width:100% lo controla sin overflow
         canvas.style.height = h + 'px';
 
         const ctx = canvas.getContext('2d');

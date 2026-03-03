@@ -238,8 +238,9 @@ class DatabaseService:
         finally:
             conn.close()
 
-    def get_chart_data(self, days=30):
-        """Retorna datos agregados por dia para graficas."""
+    def get_chart_data(self, days=7):
+        """Retorna datos agregados por dia para graficas, rellenando dias sin datos con ceros."""
+        from datetime import datetime, timedelta
         conn = self._get_conn()
         try:
             rows = conn.execute("""
@@ -254,12 +255,24 @@ class DatabaseService:
                 GROUP BY DATE(timestamp)
                 ORDER BY day ASC
             """, (f'-{days} days',)).fetchall()
-            return {
-                "days": [r["day"] for r in rows],
-                "legal": [r["legal"] for r in rows],
-                "illegal": [r["illegal"] for r in rows],
-                "suspicious": [r["suspicious"] for r in rows],
-                "tokens": [r["tokens"] or 0 for r in rows],
-            }
+
+            # Rellenar todos los dias del rango con ceros donde no hay datos
+            row_dict = {r["day"]: r for r in rows}
+            end = datetime.utcnow().date()
+            start = end - timedelta(days=days - 1)
+
+            result = {"days": [], "legal": [], "illegal": [], "suspicious": [], "tokens": []}
+            d = start
+            while d <= end:
+                day_str = d.strftime('%Y-%m-%d')
+                r = row_dict.get(day_str)
+                result["days"].append(day_str)
+                result["legal"].append(r["legal"] if r else 0)
+                result["illegal"].append(r["illegal"] if r else 0)
+                result["suspicious"].append(r["suspicious"] if r else 0)
+                result["tokens"].append((r["tokens"] or 0) if r else 0)
+                d += timedelta(days=1)
+
+            return result
         finally:
             conn.close()
