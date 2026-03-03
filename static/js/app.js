@@ -698,8 +698,11 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const resp = await fetch('/api/stats/chart?days=30');
             const data = await resp.json();
-            drawDetectionsChart(data);
-            drawTokensChart(data);
+            // Wait for next frame to ensure tab is fully rendered
+            requestAnimationFrame(() => {
+                drawDetectionsChart(data);
+                drawTokensChart(data);
+            });
         } catch (e) { /* silent */ }
     }
 
@@ -709,7 +712,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const dpr = window.devicePixelRatio || 1;
         const parent = canvas.parentElement;
-        const w = parent.clientWidth - 32;
+        const rawW = parent.clientWidth;
+        if (rawW < 50) return; // Tab hidden or not rendered yet
+        const w = rawW - 32;
         const h = 220;
 
         canvas.width = w * dpr;
@@ -1001,7 +1006,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ===================== Init =====================
     loadStats();
-    loadChartData();
     loadModelInfo();
     checkCameraPermission().then(() => {
         if (cameraPermissionGranted) startCamera();
