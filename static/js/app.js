@@ -373,15 +373,29 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // ===================== Reset Scan (mobile) =====================
+    // ===================== Reset Scan =====================
     function resetScan(container) {
+        // Limpiar imagen en memoria
+        currentImage = null;
+
+        // Limpiar previews
+        if (previewImg) previewImg.src = '';
+        if (capturePreviewImg) capturePreviewImg.src = '';
+        if (imagePreview) imagePreview.style.display = 'none';
+        if (capturePreview) capturePreview.style.display = 'none';
+        if (uploadZone) uploadZone.style.display = '';
+        if (fileInput) fileInput.value = '';
+        if (btnScan) btnScan.disabled = true;
+        if (resultsPanel) resultsPanel.innerHTML = '';
+
+        // Quitar clase de resultados
         if (container) container.classList.remove('has-results');
     }
 
     // Make available globally for inline onclick
     window.resetScan = function(containerId) {
         const el = document.getElementById(containerId);
-        if (el) el.classList.remove('has-results');
+        resetScan(el);
     };
 
     // ===================== Results Display =====================
