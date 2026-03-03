@@ -71,7 +71,7 @@ document.addEventListener('DOMContentLoaded', () => {
             } else {
                 pauseCamera();
             }
-            if (target === 'manual') loadChartData();
+            if (target === 'stats') loadChartData();
             if (target === 'database') loadDatabaseView();
             if (target === 'training') loadModelInfo();
         });
@@ -703,103 +703,127 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (e) { /* silent */ }
     }
 
-    function drawMultiLineChart(canvasId, datasets, labels, yLabel) {
+    function drawMultiLineChart(canvasId, labels, datasets) {
         const canvas = document.getElementById(canvasId);
-        if (!canvas) return;
+        if (!canvas || !labels.length) return;
+
         const dpr = window.devicePixelRatio || 1;
-        const rect = canvas.getBoundingClientRect();
-        canvas.width = rect.width * dpr;
-        canvas.height = rect.height * dpr;
+        const parent = canvas.parentElement;
+        const w = parent.clientWidth - 32;
+        const h = 220;
+
+        canvas.width = w * dpr;
+        canvas.height = h * dpr;
+        canvas.style.width = w + 'px';
+        canvas.style.height = h + 'px';
+
         const ctx = canvas.getContext('2d');
         ctx.scale(dpr, dpr);
-        const w = rect.width;
-        const h = rect.height;
-        const padding = { top: 15, right: 15, bottom: 35, left: 45 };
-        const chartW = w - padding.left - padding.right;
-        const chartH = h - padding.top - padding.bottom;
 
-        ctx.clearRect(0, 0, w, h);
+        const margin = { top: 15, right: 15, bottom: 35, left: 45 };
+        const chartW = w - margin.left - margin.right;
+        const chartH = h - margin.top - margin.bottom;
 
-        // Find max value across all datasets
         let maxVal = 0;
         datasets.forEach(ds => {
             ds.data.forEach(v => { if (v > maxVal) maxVal = v; });
         });
         if (maxVal === 0) maxVal = 1;
+        const niceMax = Math.ceil(maxVal * 1.1) || 1;
 
-        // Grid lines
-        ctx.strokeStyle = '#E2E5EB';
-        ctx.lineWidth = 0.5;
+        ctx.clearRect(0, 0, w, h);
+
+        // Grid horizontal
+        ctx.strokeStyle = 'rgba(128,128,128,0.15)';
+        ctx.lineWidth = 1;
         const gridLines = 4;
         for (let i = 0; i <= gridLines; i++) {
-            const y = padding.top + (chartH / gridLines) * i;
+            const y = margin.top + (chartH * i / gridLines);
             ctx.beginPath();
-            ctx.moveTo(padding.left, y);
-            ctx.lineTo(w - padding.right, y);
+            ctx.moveTo(margin.left, y);
+            ctx.lineTo(margin.left + chartW, y);
             ctx.stroke();
 
-            ctx.fillStyle = '#8B90A0';
-            ctx.font = '10px Inter, sans-serif';
+            const val = Math.round(niceMax * (1 - i / gridLines));
+            ctx.fillStyle = 'rgba(128,128,128,0.6)';
+            ctx.font = '10px system-ui, sans-serif';
             ctx.textAlign = 'right';
-            const val = maxVal - (maxVal / gridLines) * i;
-            ctx.fillText(val >= 1000 ? (val / 1000).toFixed(1) + 'k' : Math.round(val).toString(), padding.left - 6, y + 4);
+            ctx.fillText(val >= 1000 ? (val / 1000).toFixed(1) + 'k' : val.toString(), margin.left - 6, y + 3);
         }
 
-        // Draw each line
-        const n = labels.length;
-        if (n === 0) return;
+        // Labels X — ~7 etiquetas max
+        const months = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+        const step = Math.max(1, Math.ceil(labels.length / 7));
+        ctx.textAlign = 'center';
+        ctx.fillStyle = 'rgba(128,128,128,0.6)';
+        ctx.font = '10px system-ui, sans-serif';
+        for (let i = 0; i < labels.length; i += step) {
+            const x = margin.left + (chartW * i / (labels.length - 1 || 1));
+            const parts = labels[i].split('-');
+            const label = parseInt(parts[2]) + ' ' + months[parseInt(parts[1]) - 1];
+            ctx.fillText(label, x, h - 5);
+        }
+        // Siempre mostrar ultima fecha
+        if (labels.length > 1 && (labels.length - 1) % step !== 0) {
+            const x = margin.left + chartW;
+            const parts = labels[labels.length - 1].split('-');
+            const label = parseInt(parts[2]) + ' ' + months[parseInt(parts[1]) - 1];
+            ctx.fillText(label, x, h - 5);
+        }
 
+        // Lineas de datos
+        const n = labels.length;
         datasets.forEach(ds => {
-            ctx.beginPath();
             ctx.strokeStyle = ds.color;
             ctx.lineWidth = 2;
             ctx.lineJoin = 'round';
+            ctx.beginPath();
 
             ds.data.forEach((val, i) => {
-                const x = n === 1 ? padding.left + chartW / 2 : padding.left + (i / (n - 1)) * chartW;
-                const y = padding.top + chartH - (val / maxVal) * chartH;
+                const x = n === 1 ? margin.left + chartW / 2 : margin.left + (i / (n - 1)) * chartW;
+                const y = margin.top + chartH - (chartH * val / niceMax);
                 if (i === 0) ctx.moveTo(x, y);
                 else ctx.lineTo(x, y);
             });
             ctx.stroke();
 
-            // Fill under
+            // Area fill
             if (n > 1) {
-                ctx.lineTo(padding.left + chartW, padding.top + chartH);
-                ctx.lineTo(padding.left, padding.top + chartH);
+                ctx.lineTo(margin.left + chartW, margin.top + chartH);
+                ctx.lineTo(margin.left, margin.top + chartH);
                 ctx.closePath();
                 ctx.fillStyle = ds.color + '15';
                 ctx.fill();
             }
-        });
 
-        // X-axis labels (show first, middle, last date)
-        ctx.fillStyle = '#8B90A0';
-        ctx.font = '10px Inter, sans-serif';
-        ctx.textAlign = 'center';
-        if (labels.length > 0) {
-            const formatDate = (d) => d ? d.substring(5) : '';  // MM-DD
-            ctx.fillText(formatDate(labels[0]), padding.left, h - 5);
-            if (labels.length > 2) {
-                const mid = Math.floor(labels.length / 2);
-                ctx.fillText(formatDate(labels[mid]), padding.left + chartW / 2, h - 5);
-            }
-            ctx.fillText(formatDate(labels[labels.length - 1]), w - padding.right, h - 5);
-        }
+            // Puntos en dias con datos
+            ds.data.forEach((val, i) => {
+                if (val > 0) {
+                    const x = n === 1 ? margin.left + chartW / 2 : margin.left + (i / (n - 1)) * chartW;
+                    const y = margin.top + chartH - (chartH * val / niceMax);
+                    ctx.fillStyle = ds.color;
+                    ctx.beginPath();
+                    ctx.arc(x, y, 3, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            });
+        });
     }
 
     function drawDetectionsChart(data) {
-        drawMultiLineChart('detectionsChart', [
-            { data: data.legal, color: '#16A34A' },
-            { data: data.illegal, color: '#DC2626' },
-            { data: data.suspicious, color: '#D97706' },
-        ], data.days, 'Detecciones');
+        if (!data.days || !data.days.length) return;
+        drawMultiLineChart('detectionsChart', data.days, [
+            { data: data.legal, color: '#22c55e' },
+            { data: data.illegal, color: '#ef4444' },
+            { data: data.suspicious, color: '#f59e0b' },
+        ]);
     }
 
     function drawTokensChart(data) {
-        drawMultiLineChart('tokensChart', [
-            { data: data.tokens, color: '#2563EB' },
-        ], data.days, 'Tokens');
+        if (!data.days || !data.days.length) return;
+        drawMultiLineChart('tokensChart', data.days, [
+            { data: data.tokens, color: '#3b82f6' },
+        ]);
     }
 
     // ===================== Model Info =====================
