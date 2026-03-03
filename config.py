@@ -8,7 +8,7 @@ DEEPSEEK_MODEL = "deepseek-chat"
 LM_STUDIO_API_URL = os.environ.get("LM_STUDIO_API_URL", "http://100.121.240.89:8084/api/v1/chat")
 VISION_MODEL = os.environ.get("VISION_MODEL", "zai-org/glm-4.6v-flash")
 FALLBACK_VISION_MODEL = os.environ.get("FALLBACK_VISION_MODEL", "glm-ocr")
-MAX_OUTPUT_TOKENS = int(os.environ.get("MAX_OUTPUT_TOKENS", "800"))
+MAX_OUTPUT_TOKENS = int(os.environ.get("MAX_OUTPUT_TOKENS", "1500"))
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 MODEL_WEIGHTS_PATH = os.path.join(DATA_DIR, "model_weights.json")

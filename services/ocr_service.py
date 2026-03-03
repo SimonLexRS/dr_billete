@@ -55,13 +55,13 @@ class OCRService:
 
     @staticmethod
     def _normalize_orientation(image_base64: str) -> str:
-        """Normalize EXIF orientation, resize to max 800px, return base64."""
+        """Normalize EXIF orientation, resize to max 1024px, return base64."""
         try:
             img = Image.open(BytesIO(base64.b64decode(image_base64)))
             img = ImageOps.exif_transpose(img)
             if img.mode == "RGBA":
                 img = img.convert("RGB")
-            img.thumbnail((800, 800))
+            img.thumbnail((1024, 1024))
             buf = BytesIO()
             img.save(buf, format="JPEG", quality=85)
             return base64.b64encode(buf.getvalue()).decode("utf-8")
@@ -131,7 +131,7 @@ class OCRService:
             response = requests.post(
                 self.api_url,
                 json=payload,
-                timeout=(15, 120),
+                timeout=(15, 180),
                 stream=True,
             )
             response.raise_for_status()
