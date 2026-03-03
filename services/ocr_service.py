@@ -8,6 +8,7 @@ Endpoint: /api/v1/chat
 import base64
 import json
 import re
+import time
 from io import BytesIO
 
 import requests
@@ -115,6 +116,7 @@ class OCRService:
     def _call_vision_model(self, image_base64: str, model: str,
                            prompt: str) -> list:
         """Llama a un modelo de vision en LM Studio y parsea la respuesta SSE.
+        Reintenta hasta 2 veces en errores transitorios (red, 5xx, respuesta vacia).
         Retorna lista de resultados (uno por billete detectado)."""
         payload = {
             "model": model,
@@ -127,75 +129,94 @@ class OCRService:
             "stream": True,
         }
 
-        try:
-            response = requests.post(
-                self.api_url,
-                json=payload,
-                timeout=(15, 180),
-                stream=True,
-            )
-            response.raise_for_status()
-
-            content = ""
-            for line in response.iter_lines():
-                if not line:
-                    continue
-                line_str = line.decode("utf-8") if isinstance(line, bytes) else line
-                if line_str.startswith("data: "):
-                    line_str = line_str[6:]
-                elif line_str.startswith("event: "):
-                    continue
-                if line_str.strip() == "[DONE]":
-                    break
-                try:
-                    chunk = json.loads(line_str)
-                except json.JSONDecodeError:
-                    continue
-                if "error" in chunk:
-                    err_msg = chunk["error"]
-                    if isinstance(err_msg, dict):
-                        err_msg = err_msg.get("message", str(err_msg))
-                    return [self._fallback_error(f"Error de LM Studio: {err_msg}")]
-                chunk_type = chunk.get("type", "")
-                if chunk_type == "message.delta":
-                    content += chunk.get("content", "")
-                elif chunk_type == "chat.end":
-                    break
-
-            if not content:
-                return [self._fallback_error("El modelo OCR no devolvio respuesta.")]
-
-            tokens_used = len(content) // 4
-
-            results = self._parse_multi_response(content)
-            for r in results:
-                r["tokens_used"] = tokens_used
-            return results
-
-        except requests.exceptions.HTTPError as e:
-            status = e.response.status_code if e.response else "unknown"
-            detail = ""
+        max_retries = 2
+        for attempt in range(max_retries + 1):
             try:
-                detail = e.response.json().get("error", "")
-                if isinstance(detail, dict):
-                    detail = detail.get("message", "")
-            except Exception:
-                pass
-            return [self._fallback_error(
-                f"Error HTTP {status} de LM Studio. {detail}"
-            )]
-        except requests.exceptions.Timeout:
-            return [self._fallback_error(
-                "Timeout: el servidor OCR no respondio a tiempo. "
-                "Verifique que LM Studio esta corriendo."
-            )]
-        except requests.exceptions.ConnectionError:
-            return [self._fallback_error(
-                "No se pudo conectar con el servidor OCR. "
-                "Verifique que LM Studio esta corriendo en la red local."
-            )]
-        except Exception as e:
-            return [self._fallback_error(f"Error inesperado: {str(e)}")]
+                response = requests.post(
+                    self.api_url,
+                    json=payload,
+                    timeout=(15, 180),
+                    stream=True,
+                )
+                response.raise_for_status()
+
+                content = ""
+                for line in response.iter_lines():
+                    if not line:
+                        continue
+                    line_str = line.decode("utf-8") if isinstance(line, bytes) else line
+                    if line_str.startswith("data: "):
+                        line_str = line_str[6:]
+                    elif line_str.startswith("event: "):
+                        continue
+                    if line_str.strip() == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(line_str)
+                    except json.JSONDecodeError:
+                        continue
+                    if "error" in chunk:
+                        err_msg = chunk["error"]
+                        if isinstance(err_msg, dict):
+                            err_msg = err_msg.get("message", str(err_msg))
+                        return [self._fallback_error(f"Error de LM Studio: {err_msg}")]
+                    chunk_type = chunk.get("type", "")
+                    if chunk_type == "message.delta":
+                        content += chunk.get("content", "")
+                    elif chunk_type == "chat.end":
+                        break
+
+                if not content:
+                    # Respuesta vacia: modelo cargando o warmup — reintentar
+                    if attempt < max_retries:
+                        time.sleep(3 * (attempt + 1))
+                        continue
+                    return [self._fallback_error("El modelo OCR no devolvio respuesta.")]
+
+                tokens_used = len(content) // 4
+                results = self._parse_multi_response(content)
+                for r in results:
+                    r["tokens_used"] = tokens_used
+                return results
+
+            except requests.exceptions.HTTPError as e:
+                status = e.response.status_code if e.response else 0
+                if status >= 500 and attempt < max_retries:
+                    # Error 5xx transitorio de LM Studio — reintentar
+                    time.sleep(3 * (attempt + 1))
+                    continue
+                detail = ""
+                try:
+                    detail = e.response.json().get("error", "")
+                    if isinstance(detail, dict):
+                        detail = detail.get("message", "")
+                except Exception:
+                    pass
+                return [self._fallback_error(
+                    f"Error HTTP {status} de LM Studio. {detail}"
+                )]
+
+            except requests.exceptions.Timeout:
+                # No reintentar timeouts — ya esperamos hasta 180s
+                return [self._fallback_error(
+                    "Timeout: el servidor OCR no respondio a tiempo. "
+                    "Verifique que LM Studio esta corriendo."
+                )]
+
+            except requests.exceptions.ConnectionError:
+                if attempt < max_retries:
+                    # Error de red transitorio (Tailscale) — reintentar con backoff
+                    time.sleep(3 * (attempt + 1))
+                    continue
+                return [self._fallback_error(
+                    "No se pudo conectar con el servidor OCR. "
+                    "Verifique que LM Studio esta corriendo en la red local."
+                )]
+
+            except Exception as e:
+                return [self._fallback_error(f"Error inesperado: {str(e)}")]
+
+        return [self._fallback_error("El OCR fallo despues de varios intentos.")]
 
     def _parse_multi_response(self, content: str) -> list:
         """Parsea respuesta que puede contener multiples billetes separados por ---BILLETE---."""
