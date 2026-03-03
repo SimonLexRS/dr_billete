@@ -783,10 +783,34 @@ body {
     color: var(--text);
 }
 
-.share-btn.whatsapp:hover {
-    background: #E8F5E9;
+.share-btn svg {
+    flex-shrink: 0;
+}
+
+.share-btn.share-wa {
+    background: #25D366;
     border-color: #25D366;
-    color: #128C7E;
+    color: #fff;
+}
+.share-btn.share-wa:hover {
+    background: #128C7E;
+    border-color: #128C7E;
+    color: #fff;
+}
+.share-btn.share-fb:hover {
+    background: #EBF0FA;
+    border-color: #1877F2;
+    color: #1877F2;
+}
+.share-btn.share-x:hover {
+    background: #f0f0f0;
+    border-color: #000;
+    color: #000;
+}
+.share-btn.share-copy:hover {
+    background: #EFF6FF;
+    border-color: var(--info);
+    color: var(--info);
 }
 
 /* Model Info Card */
