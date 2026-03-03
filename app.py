@@ -128,6 +128,13 @@ def get_history():
     ))
 
 
+@app.route("/api/stats/chart")
+def get_chart_data():
+    """Retorna datos agregados por dia para graficas."""
+    days = request.args.get("days", 30, type=int)
+    return jsonify(detector.get_chart_data(min(days, 90)))
+
+
 @app.route("/api/test-connection")
 def test_connection():
     """Prueba la conexion con DeepSeek."""

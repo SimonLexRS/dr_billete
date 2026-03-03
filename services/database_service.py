@@ -60,6 +60,9 @@ class DatabaseService:
             if "batch_id" not in columns:
                 conn.execute("ALTER TABLE scans ADD COLUMN batch_id TEXT DEFAULT ''")
                 conn.commit()
+            if "tokens_used" not in columns:
+                conn.execute("ALTER TABLE scans ADD COLUMN tokens_used INTEGER DEFAULT 0")
+                conn.commit()
         finally:
             conn.close()
 
@@ -140,19 +143,21 @@ class DatabaseService:
             conn.close()
 
     def record_scan(self, denomination, serial, series, verdict, risk_level,
-                    confidence, method, raw_ocr_text="", batch_id=""):
+                    confidence, method, raw_ocr_text="", batch_id="",
+                    tokens_used=0):
         conn = self._get_conn()
         try:
             conn.execute("""
                 INSERT INTO scans
                     (timestamp, denomination, serial, series, verdict,
-                     risk_level, confidence, method, raw_ocr_text, batch_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     risk_level, confidence, method, raw_ocr_text, batch_id,
+                     tokens_used)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 datetime.now(timezone.utc).isoformat(),
                 denomination, serial, series or "",
                 verdict, risk_level, confidence, method, raw_ocr_text or "",
-                batch_id or "",
+                batch_id or "", tokens_used or 0,
             ))
             conn.commit()
         finally:
@@ -229,6 +234,32 @@ class DatabaseService:
                 "page": page,
                 "per_page": per_page,
                 "total_pages": (total + per_page - 1) // per_page if total > 0 else 0,
+            }
+        finally:
+            conn.close()
+
+    def get_chart_data(self, days=30):
+        """Retorna datos agregados por dia para graficas."""
+        conn = self._get_conn()
+        try:
+            rows = conn.execute("""
+                SELECT DATE(timestamp) as day,
+                       SUM(CASE WHEN verdict='LEGAL' THEN 1 ELSE 0 END) as legal,
+                       SUM(CASE WHEN verdict='ILEGAL' THEN 1 ELSE 0 END) as illegal,
+                       SUM(CASE WHEN verdict='SOSPECHOSO' THEN 1 ELSE 0 END) as suspicious,
+                       SUM(tokens_used) as tokens
+                FROM scans
+                WHERE timestamp >= datetime('now', ?)
+                  AND method NOT IN ('migrated', 'seed')
+                GROUP BY DATE(timestamp)
+                ORDER BY day ASC
+            """, (f'-{days} days',)).fetchall()
+            return {
+                "days": [r["day"] for r in rows],
+                "legal": [r["legal"] for r in rows],
+                "illegal": [r["illegal"] for r in rows],
+                "suspicious": [r["suspicious"] for r in rows],
+                "tokens": [r["tokens"] or 0 for r in rows],
             }
         finally:
             conn.close()

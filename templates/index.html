@@ -232,6 +232,26 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Stats Chart Section -->
+            <div class="usage-stats-section" id="usageStatsSection">
+                <h2 class="section-title">Estadisticas de Uso</h2>
+                <div class="chart-cards">
+                    <div class="chart-card">
+                        <h3 class="chart-title">Detecciones por Dia</h3>
+                        <canvas id="detectionsChart" width="600" height="250"></canvas>
+                        <div class="chart-legend">
+                            <span class="legend-item"><span class="legend-color" style="background:var(--success)"></span> Legales</span>
+                            <span class="legend-item"><span class="legend-color" style="background:var(--danger)"></span> Ilegales</span>
+                            <span class="legend-item"><span class="legend-color" style="background:var(--warning)"></span> Sospechosos</span>
+                        </div>
+                    </div>
+                    <div class="chart-card">
+                        <h3 class="chart-title">Tokens IA Consumidos</h3>
+                        <canvas id="tokensChart" width="600" height="250"></canvas>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- Hidden tabs: keep for API functionality -->
@@ -288,19 +308,19 @@
                 <p class="footer-powered">Powered by Sentinel AI</p>
             </div>
             <div class="footer-donate">
-                <button class="donate-link" onclick="openDonateModal()">&#9749; Apoya este proyecto</button>
+                <button class="donate-link" onclick="openDonateModal()">&#9749; Invitame un cafe</button>
             </div>
         </div>
     </footer>
 
     <!-- Floating Donate Button -->
-    <button class="fab-donate" onclick="openDonateModal()" title="Apoya este proyecto">&#9749;</button>
+    <button class="fab-donate" onclick="openDonateModal()" title="Invitame un cafe">&#9749;<span class="fab-label">Invitame un cafe</span></button>
 
     <!-- Donate Modal -->
     <div class="donate-overlay" id="donateOverlay" onclick="closeDonateModal()">
         <div class="donate-modal" onclick="event.stopPropagation()">
             <button class="donate-close" onclick="closeDonateModal()">&times;</button>
-            <h3 class="donate-title">Apoya este proyecto</h3>
+            <h3 class="donate-title">&#9749; Invitame un cafe</h3>
             <p class="donate-subtitle">Tu donacion ayuda a crear proyectos de gran utilidad para Bolivia</p>
             <div class="donate-tabs">
                 <button class="donate-tab active" onclick="switchDonateTab('bcp')">QR Bolivia</button>

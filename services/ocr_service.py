@@ -138,9 +138,11 @@ class OCRService:
             response.raise_for_status()
 
             content_type = response.headers.get("content-type", "")
+            tokens_used = 0
             if "text/event-stream" in content_type:
                 # Servidor ignoro stream=False, parsear como SSE
                 content = self._parse_sse_stream(response)
+                tokens_used = len(content) // 4  # Estimar ~4 chars por token
             else:
                 data = response.json()
                 if "error" in data:
@@ -149,11 +151,19 @@ class OCRService:
                         err_msg = err_msg.get("message", str(err_msg))
                     return [self._fallback_error(f"Error de LM Studio: {err_msg}")]
                 content = self._extract_content_from_response(data)
+                # Extraer tokens de la respuesta si disponible
+                usage = data.get("usage", {})
+                tokens_used = usage.get("total_tokens", 0)
+                if not tokens_used:
+                    tokens_used = len(content) // 4
 
             if not content:
                 return [self._fallback_error("El modelo OCR no devolvio respuesta.")]
 
-            return self._parse_multi_response(content)
+            results = self._parse_multi_response(content)
+            for r in results:
+                r["tokens_used"] = tokens_used
+            return results
 
         except requests.exceptions.HTTPError as e:
             status = e.response.status_code if e.response else "unknown"

@@ -100,6 +100,7 @@ class DetectorService:
                 method="scan",
                 raw_ocr_text=ocr_result.get("raw_text", ""),
                 batch_id=batch_id if len(successful) > 1 else "",
+                tokens_used=ocr_result.get("tokens_used", 0),
             )
             self._increment_stats(verification["verdict"])
             banknotes.append(verification)
@@ -210,6 +211,10 @@ class DetectorService:
     def get_ranges(self):
         """Retorna los rangos del BCB."""
         return self.db.get_all_ranges_flat()
+
+    def get_chart_data(self, days=30):
+        """Retorna datos agregados por dia para graficas."""
+        return self.database.get_chart_data(days)
 
     def test_api(self):
         """Prueba la conexion con el servicio OCR."""

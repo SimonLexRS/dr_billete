@@ -167,6 +167,62 @@ body {
     font-size: 0.75rem;
 }
 
+/* Usage Stats Charts */
+.usage-stats-section {
+    margin-top: 2rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border);
+}
+
+.chart-cards {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+    margin-top: 1rem;
+}
+
+.chart-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.25rem;
+    box-shadow: var(--shadow);
+}
+
+.chart-title {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 0.75rem;
+}
+
+.chart-card canvas {
+    width: 100%;
+    height: 180px;
+}
+
+.chart-legend {
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+    margin-top: 0.75rem;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+.legend-color {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    display: inline-block;
+}
+
 /* Main */
 .main-content {
     max-width: 960px;
@@ -1163,15 +1219,17 @@ body {
     position: fixed;
     bottom: 24px;
     right: 24px;
-    width: 52px;
-    height: 52px;
+    width: auto;
+    height: 48px;
+    padding: 0 1.25rem;
     background: var(--yellow);
     color: var(--text);
-    border-radius: 50%;
+    border-radius: 999px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 1.5rem;
+    gap: 0.5rem;
+    font-size: 1.3rem;
     text-decoration: none;
     box-shadow: var(--shadow-lg);
     transition: var(--transition);
@@ -1179,8 +1237,14 @@ body {
 }
 
 .fab-donate:hover {
-    transform: scale(1.1);
+    transform: scale(1.05);
     box-shadow: 0 8px 28px rgba(249, 227, 0, 0.4);
+}
+
+.fab-label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    white-space: nowrap;
 }
 
 /* Responsive: Tablet */
@@ -1280,6 +1344,19 @@ body {
 
     .db-tables {
         grid-template-columns: 1fr;
+    }
+
+    .chart-cards {
+        grid-template-columns: 1fr;
+    }
+
+    .fab-label {
+        display: none;
+    }
+
+    .fab-donate {
+        width: 52px;
+        padding: 0;
     }
 
     .section-title {
