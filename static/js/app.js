@@ -16,6 +16,14 @@ async function scanWithSSE(imageBase64) {
     });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
 
+    // Fallback para iOS < 14.5 que no soporta resp.body.getReader()
+    if (!resp.body || typeof resp.body.getReader !== 'function') {
+        const text = await resp.text();
+        const dataLine = text.split('\n').reverse().find(l => l.trim().startsWith('data: '));
+        if (dataLine) return JSON.parse(dataLine.slice(dataLine.indexOf('data: ') + 6).trim());
+        throw new Error('Sin datos en respuesta');
+    }
+
     const reader = resp.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
@@ -28,7 +36,7 @@ async function scanWithSSE(imageBase64) {
         buffer = lines.pop();
         for (const line of lines) {
             if (line.startsWith('data: ')) {
-                return JSON.parse(line.slice(6));
+                return JSON.parse(line.slice(6).trim()); // trim() elimina \r de \r\n
             }
             // ': ping' lines se ignoran — solo mantienen la conexion viva
         }
