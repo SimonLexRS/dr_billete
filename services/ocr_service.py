@@ -162,9 +162,17 @@ class OCRService:
                         return [self._fallback_error(f"Error de LM Studio: {err_msg}")]
                     chunk_type = chunk.get("type", "")
                     if chunk_type == "message.delta":
+                        # Formato nativo LM Studio (GLM)
                         content += chunk.get("content", "")
                     elif chunk_type == "chat.end":
                         break
+                    elif "choices" in chunk:
+                        # Formato OpenAI-compatible (MiniCPM y otros)
+                        choice = chunk["choices"][0] if chunk["choices"] else {}
+                        delta = choice.get("delta", {})
+                        content += delta.get("content", "") or ""
+                        if choice.get("finish_reason"):
+                            break
 
                 if not content:
                     # Respuesta vacia: modelo cargando o warmup — reintentar
