@@ -88,8 +88,21 @@ class OCRService:
                 return successful
 
         print(f"[OCR] Primary model failed or found 0 banknotes, trying fallback")
-        # Intento 2: fallback con modelo OCR simple + regex parsing
+        # Intento 2: fallback con prompt estructurado primero, luego simple
         if self.fallback_model != self.model:
+            # 2a: prompt estructurado (mejor para multi-billete)
+            print(f"[OCR] === Fallback with structured prompt: {self.fallback_model} ===")
+            fallback_results = self._call_vision_model(
+                image_base64, self.fallback_model, PROMPT
+            )
+            if fallback_results:
+                successful = [r for r in fallback_results if r.get("success")]
+                if successful:
+                    print(f"[OCR] Fallback structured found {len(successful)} banknote(s)")
+                    return successful
+
+            # 2b: prompt simple + regex como ultimo recurso
+            print(f"[OCR] === Fallback with simple prompt: {self.fallback_model} ===")
             fallback_results = self._call_vision_model(
                 image_base64, self.fallback_model, FALLBACK_PROMPT
             )
@@ -97,7 +110,6 @@ class OCRService:
                 successful = [r for r in fallback_results if r.get("success")]
                 if successful:
                     return successful
-                # Intentar extraer del texto crudo del primer resultado
                 raw = fallback_results[0].get("raw_response", "")
                 if raw:
                     extracted = self._extract_all_from_text(raw)
