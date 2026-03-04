@@ -4,6 +4,38 @@
  * Powered by Sentinel AI
  */
 
+/**
+ * Llama a /api/scan via SSE streaming para evitar timeout en conexiones moviles.
+ * El servidor envia pings ": ping" cada 10s mientras procesa, luego "data: {...}".
+ */
+async function scanWithSSE(imageBase64) {
+    const resp = await fetch('/api/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: imageBase64 }),
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+        for (const line of lines) {
+            if (line.startsWith('data: ')) {
+                return JSON.parse(line.slice(6));
+            }
+            // ': ping' lines se ignoran — solo mantienen la conexion viva
+        }
+    }
+    throw new Error('Stream finalizo sin datos');
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     // ===================== State =====================
     let currentImage = null;
@@ -197,12 +229,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (ci < captureMessages.length && captureText) captureText.textContent = captureMessages[ci];
         }, 5000);
         try {
-            const resp = await fetch('/api/scan', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ image: currentImage }),
-            });
-            const data = await resp.json();
+            const data = await scanWithSSE(currentImage);
             clearInterval(captureInterval);
             captureLoading.style.display = 'none';
             showResults(resultsPanel, data, scanContainer);
@@ -318,12 +345,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!currentImage) return;
         const stopProgress = showLoadingWithProgress('Preparando imagen...');
         try {
-            const resp = await fetch('/api/scan', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ image: currentImage }),
-            });
-            const data = await resp.json();
+            const data = await scanWithSSE(currentImage);
             stopProgress();
             showResults(resultsPanel, data, scanContainer);
             loadStats();
