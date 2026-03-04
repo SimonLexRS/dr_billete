@@ -3,13 +3,10 @@ Dr. Billetes - Detector de Billetes Ilegales BCB Bolivia
 Servidor Flask principal.
 """
 
-import json
 import os
-import queue
 import shutil
-import threading
 
-from flask import Flask, render_template, request, jsonify, Response, stream_with_context
+from flask import Flask, render_template, request, jsonify
 from flask_cors import CORS
 from services.detector_service import DetectorService
 import config
@@ -42,41 +39,18 @@ def index():
 
 @app.route("/api/scan", methods=["POST"])
 def scan_banknote():
-    """Escanea una imagen de billete con OCR y verifica.
-    Retorna SSE con pings cada 10s para evitar timeout en conexiones moviles."""
+    """Escanea una imagen de billete con OCR y verifica."""
     data = request.get_json()
     if not data or "image" not in data:
         return jsonify({"success": False, "message": "No se envio imagen."}), 400
 
     image_b64 = data["image"]
+    # Remover prefijo data URI si existe
     if "," in image_b64:
         image_b64 = image_b64.split(",", 1)[1]
 
-    result_queue = queue.Queue()
-
-    def do_scan():
-        try:
-            result = detector.scan_image(image_b64)
-            result_queue.put(result)
-        except Exception as e:
-            result_queue.put({"success": False, "message": str(e)})
-
-    threading.Thread(target=do_scan, daemon=True).start()
-
-    def generate():
-        while True:
-            try:
-                result = result_queue.get(timeout=10)
-                yield f"data: {json.dumps(result)}\n\n"
-                break
-            except queue.Empty:
-                yield ": ping\n\n"  # keepalive — previene timeout de proxy/movil
-
-    return Response(
-        stream_with_context(generate()),
-        mimetype="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
+    result = detector.scan_image(image_b64)
+    return jsonify(result)
 
 
 @app.route("/api/verify", methods=["POST"])

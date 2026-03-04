@@ -79,7 +79,7 @@ class OCRService:
         print(f"[OCR] Image size: {len(image_base64)} bytes base64")
 
         # Intento 1: modelo principal con prompt estructurado
-        print(f"[OCR] === Starting extraction with primary: {self.model} ===")
+        print(f"[OCR] Trying primary model: {self.model}")
         results = self._call_vision_model(image_base64, self.model, PROMPT)
         if results:
             successful = [r for r in results if r.get("success")]
@@ -87,22 +87,9 @@ class OCRService:
                 print(f"[OCR] Primary model found {len(successful)} banknote(s)")
                 return successful
 
-        print(f"[OCR] Primary model failed or found 0 banknotes, trying fallback")
-        # Intento 2: fallback con prompt estructurado primero, luego simple
+        print(f"[OCR] Primary model failed or found 0 banknotes")
+        # Intento 2: fallback con modelo OCR simple + regex parsing
         if self.fallback_model != self.model:
-            # 2a: prompt estructurado (mejor para multi-billete)
-            print(f"[OCR] === Fallback with structured prompt: {self.fallback_model} ===")
-            fallback_results = self._call_vision_model(
-                image_base64, self.fallback_model, PROMPT
-            )
-            if fallback_results:
-                successful = [r for r in fallback_results if r.get("success")]
-                if successful:
-                    print(f"[OCR] Fallback structured found {len(successful)} banknote(s)")
-                    return successful
-
-            # 2b: prompt simple + regex como ultimo recurso
-            print(f"[OCR] === Fallback with simple prompt: {self.fallback_model} ===")
             fallback_results = self._call_vision_model(
                 image_base64, self.fallback_model, FALLBACK_PROMPT
             )
@@ -110,6 +97,7 @@ class OCRService:
                 successful = [r for r in fallback_results if r.get("success")]
                 if successful:
                     return successful
+                # Intentar extraer del texto crudo del primer resultado
                 raw = fallback_results[0].get("raw_response", "")
                 if raw:
                     extracted = self._extract_all_from_text(raw)
@@ -125,14 +113,10 @@ class OCRService:
             return [{"success": False, "error": first.get("error", "No se pudo procesar la imagen."), "source": "lm_studio"}]
         return [{"success": False, "error": "No se pudo procesar la imagen.", "source": "lm_studio"}]
 
-    # Timeout total por intento de generacion (segundos).
-    # Evita que modelos lentos bloqueen indefinidamente en imagenes complejas.
-    TOTAL_TIMEOUT = 90
-
     def _call_vision_model(self, image_base64: str, model: str,
                            prompt: str) -> list:
         """Llama a un modelo de vision en LM Studio y parsea la respuesta SSE.
-        Reintenta hasta 1 vez en errores transitorios (red, 5xx, respuesta vacia).
+        Reintenta hasta 2 veces en errores transitorios (red, 5xx, respuesta vacia).
         Retorna lista de resultados (uno por billete detectado)."""
         payload = {
             "model": model,
@@ -145,28 +129,19 @@ class OCRService:
             "stream": True,
         }
 
-        max_retries = 1
+        max_retries = 2
         for attempt in range(max_retries + 1):
-            start_time = time.time()
-            print(f"[OCR] Attempt {attempt+1}/{max_retries+1} with {model}")
             try:
                 response = requests.post(
                     self.api_url,
                     json=payload,
-                    timeout=(15, 120),
+                    timeout=(15, 180),
                     stream=True,
                 )
                 response.raise_for_status()
 
                 content = ""
-                timed_out = False
                 for line in response.iter_lines():
-                    elapsed = time.time() - start_time
-                    if elapsed > self.TOTAL_TIMEOUT:
-                        print(f"[OCR] Total timeout {self.TOTAL_TIMEOUT}s reached for {model} "
-                              f"(got {len(content)} chars so far)")
-                        timed_out = True
-                        break
                     if not line:
                         continue
                     line_str = line.decode("utf-8") if isinstance(line, bytes) else line
@@ -187,27 +162,12 @@ class OCRService:
                         return [self._fallback_error(f"Error de LM Studio: {err_msg}")]
                     chunk_type = chunk.get("type", "")
                     if chunk_type == "message.delta":
-                        # Formato nativo LM Studio (GLM)
                         content += chunk.get("content", "")
                     elif chunk_type == "chat.end":
                         break
-                    elif "choices" in chunk:
-                        # Formato OpenAI-compatible (MiniCPM y otros)
-                        choice = chunk["choices"][0] if chunk["choices"] else {}
-                        delta = choice.get("delta", {})
-                        content += delta.get("content", "") or ""
-                        if choice.get("finish_reason"):
-                            break
-
-                elapsed = time.time() - start_time
-                print(f"[OCR] {model} responded: {len(content)} chars in {elapsed:.1f}s"
-                      f"{' (TIMEOUT)' if timed_out else ''}")
-
-                # Si se obtuvo contenido parcial por timeout, intentar parsearlo
-                if timed_out and content:
-                    print(f"[OCR] Attempting to parse partial content ({len(content)} chars)")
 
                 if not content:
+                    # Respuesta vacia: modelo cargando o warmup — reintentar
                     if attempt < max_retries:
                         time.sleep(3 * (attempt + 1))
                         continue
@@ -217,15 +177,12 @@ class OCRService:
                 results = self._parse_multi_response(content)
                 for r in results:
                     r["tokens_used"] = tokens_used
-                print(f"[OCR] Parsed {len(results)} result(s), "
-                      f"successful: {sum(1 for r in results if r.get('success'))}")
                 return results
 
             except requests.exceptions.HTTPError as e:
                 status = e.response.status_code if e.response else 0
-                elapsed = time.time() - start_time
-                print(f"[OCR] HTTP {status} from {model} after {elapsed:.1f}s")
                 if status >= 500 and attempt < max_retries:
+                    # Error 5xx transitorio de LM Studio — reintentar
                     time.sleep(3 * (attempt + 1))
                     continue
                 detail = ""
@@ -240,17 +197,15 @@ class OCRService:
                 )]
 
             except requests.exceptions.Timeout:
-                elapsed = time.time() - start_time
-                print(f"[OCR] Read timeout from {model} after {elapsed:.1f}s")
+                # No reintentar timeouts — ya esperamos hasta 180s
                 return [self._fallback_error(
                     "Timeout: el servidor OCR no respondio a tiempo. "
                     "Verifique que LM Studio esta corriendo."
                 )]
 
             except requests.exceptions.ConnectionError:
-                elapsed = time.time() - start_time
-                print(f"[OCR] Connection error to {model} after {elapsed:.1f}s")
                 if attempt < max_retries:
+                    # Error de red transitorio (Tailscale) — reintentar con backoff
                     time.sleep(3 * (attempt + 1))
                     continue
                 return [self._fallback_error(
@@ -259,7 +214,6 @@ class OCRService:
                 )]
 
             except Exception as e:
-                print(f"[OCR] Unexpected error with {model}: {e}")
                 return [self._fallback_error(f"Error inesperado: {str(e)}")]
 
         return [self._fallback_error("El OCR fallo despues de varios intentos.")]
