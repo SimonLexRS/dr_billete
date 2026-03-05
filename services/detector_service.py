@@ -62,32 +62,38 @@ class DetectorService:
         self._save_stats()
 
     def _save_training_image(self, image_base64: str, batch_id: str):
-        """Guarda imagen raw para entrenamiento YOLO (no-blocking)."""
+        """Guarda imagen raw para entrenamiento YOLO."""
         if not config.TRAINING_IMAGES_ENABLED:
+            print("[Training] DESACTIVADO por config")
             return None
 
         try:
-            # Verificar si ya alcanzamos el target
             count = self._count_training_images()
             if count >= config.TRAINING_IMAGES_TARGET:
+                print(f"[Training] Target alcanzado ({count}/{config.TRAINING_IMAGES_TARGET})")
                 return None
 
             today = datetime.now().strftime("%Y-%m-%d")
             day_dir = os.path.join(config.TRAINING_IMAGES_DIR, today)
+            print(f"[Training] Creando directorio: {day_dir}")
             os.makedirs(day_dir, exist_ok=True)
 
-            # Guardar imagen como JPEG
             img_data = image_base64
             if "," in img_data:
                 img_data = img_data.split(",", 1)[1]
 
             img_path = os.path.join(day_dir, f"scan_{batch_id}.jpg")
+            raw_bytes = base64.b64decode(img_data)
             with open(img_path, "wb") as f:
-                f.write(base64.b64decode(img_data))
+                f.write(raw_bytes)
 
+            size_kb = len(raw_bytes) / 1024
+            print(f"[Training] Imagen guardada: {img_path} ({size_kb:.0f} KB) [{count+1}/{config.TRAINING_IMAGES_TARGET}]")
             return img_path
         except Exception as e:
-            print(f"[Training] Error guardando imagen: {e}")
+            print(f"[Training] ERROR guardando imagen: {type(e).__name__}: {e}")
+            import traceback
+            traceback.print_exc()
             return None
 
     def _save_training_metadata(self, img_path: str, batch_id: str,
@@ -132,17 +138,47 @@ class DetectorService:
         count = self._count_training_images()
         disk_mb = 0.0
         base = config.TRAINING_IMAGES_DIR
-        if os.path.exists(base):
+        dir_exists = os.path.exists(base)
+        writable = os.access(base, os.W_OK) if dir_exists else False
+
+        if dir_exists:
             for dirpath, _, filenames in os.walk(base):
                 for f in filenames:
-                    disk_mb += os.path.getsize(os.path.join(dirpath, f))
+                    try:
+                        disk_mb += os.path.getsize(os.path.join(dirpath, f))
+                    except OSError:
+                        pass
             disk_mb /= (1024 * 1024)
+
+        # Test de escritura rapido
+        write_test = "no probado"
+        if dir_exists and writable:
+            test_path = os.path.join(base, ".write_test")
+            try:
+                with open(test_path, "w") as f:
+                    f.write("ok")
+                os.remove(test_path)
+                write_test = "ok"
+            except Exception as e:
+                write_test = f"error: {e}"
+
         return {
             "enabled": config.TRAINING_IMAGES_ENABLED,
             "collected": count,
             "target": config.TRAINING_IMAGES_TARGET,
             "disk_usage_mb": round(disk_mb, 1),
             "ready": count >= config.TRAINING_IMAGES_TARGET,
+            "diagnostics": {
+                "images_dir": config.TRAINING_IMAGES_DIR,
+                "dir_exists": dir_exists,
+                "writable": writable,
+                "write_test": write_test,
+                "data_dir": config.DATA_DIR,
+            },
+            "detection": {
+                "phase": "yolo" if self.bill_detector.yolo_available else "opencv",
+                "active": True,
+            },
         }
 
     def scan_image(self, image_base64: str) -> dict:

@@ -141,6 +141,42 @@ def training_status():
     return jsonify(detector.get_training_status())
 
 
+@app.route("/api/training/test-save")
+def training_test_save():
+    """Prueba de escritura en directorio de training."""
+    import base64
+    from datetime import datetime
+    try:
+        os.makedirs(config.TRAINING_IMAGES_DIR, exist_ok=True)
+        test_file = os.path.join(config.TRAINING_IMAGES_DIR, "test_write.tmp")
+        with open(test_file, "wb") as f:
+            f.write(b"test")
+        os.remove(test_file)
+
+        # Listar contenido actual
+        contents = []
+        for dirpath, dirnames, filenames in os.walk(config.TRAINING_IMAGES_DIR):
+            rel = os.path.relpath(dirpath, config.TRAINING_IMAGES_DIR)
+            for fn in filenames:
+                contents.append(os.path.join(rel, fn) if rel != "." else fn)
+
+        return jsonify({
+            "success": True,
+            "message": "Escritura OK",
+            "images_dir": config.TRAINING_IMAGES_DIR,
+            "data_dir": config.DATA_DIR,
+            "contents": contents[:50],
+            "total_files": len(contents),
+        })
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": f"{type(e).__name__}: {e}",
+            "images_dir": config.TRAINING_IMAGES_DIR,
+            "data_dir": config.DATA_DIR,
+        })
+
+
 @app.route("/api/test-connection")
 def test_connection():
     """Prueba la conexion con DeepSeek."""
