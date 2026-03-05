@@ -47,6 +47,22 @@ PROMPT = (
 
 FALLBACK_PROMPT = "Lee todo el texto visible en esta imagen"
 
+SINGLE_BILL_PROMPT = (
+    "Esta imagen contiene UN billete boliviano fisico. "
+    "IGNORA completamente cualquier texto que NO sea parte del billete "
+    "(numeros de telefono, comentarios, logos, marcas de agua de apps, "
+    "texto de interfaz, emojis, nombres de usuario). "
+    "Solo lee el texto IMPRESO en el billete fisico.\n\n"
+    "Extrae exactamente:\n"
+    "- Denominacion: el valor del billete (10, 20, 50, 100 o 200)\n"
+    "- Serie: la letra mayuscula (A, B, C, etc.)\n"
+    "- Serial: el numero de serie impreso (tipicamente 9 digitos)\n\n"
+    "Responde SOLO con:\n"
+    "Denominacion: [numero]\n"
+    "Serie: [letra]\n"
+    "Serial: [numero]"
+)
+
 
 class OCRService:
     def __init__(self):
@@ -112,6 +128,47 @@ class OCRService:
                 return [first]
             return [{"success": False, "error": first.get("error", "No se pudo procesar la imagen."), "source": "lm_studio"}]
         return [{"success": False, "error": "No se pudo procesar la imagen.", "source": "lm_studio"}]
+
+    def extract_single_bill(self, image_base64: str) -> dict:
+        """
+        OCR optimizado para una imagen recortada de UN solo billete.
+        Usa prompt simplificado para respuesta mas rapida y precisa.
+        Retorna dict con {success, denomination, serial, series, raw_text}
+        """
+        image_base64 = self._normalize_orientation(image_base64)
+
+        # Intentar con prompt de billete unico (mas rapido)
+        results = self._call_vision_model(
+            image_base64, self.model, SINGLE_BILL_PROMPT
+        )
+        if results:
+            successful = [r for r in results if r.get("success")]
+            if successful:
+                return successful[0]
+
+        # Fallback: intentar con prompt multi-billete
+        results = self._call_vision_model(image_base64, self.model, PROMPT)
+        if results:
+            successful = [r for r in results if r.get("success")]
+            if successful:
+                return successful[0]
+
+        # Fallback final: modelo alternativo
+        if self.fallback_model != self.model:
+            results = self._call_vision_model(
+                image_base64, self.fallback_model, FALLBACK_PROMPT
+            )
+            if results:
+                successful = [r for r in results if r.get("success")]
+                if successful:
+                    return successful[0]
+                raw = results[0].get("raw_response", "")
+                if raw:
+                    extracted = self._extract_all_from_text(raw)
+                    if extracted:
+                        return extracted[0]
+
+        return {"success": False, "error": "No se pudo leer el billete."}
 
     def _call_vision_model(self, image_base64: str, model: str,
                            prompt: str) -> list:

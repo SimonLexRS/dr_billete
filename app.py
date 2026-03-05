@@ -135,6 +135,12 @@ def get_chart_data():
     return jsonify(detector.get_chart_data(min(days, 90)))
 
 
+@app.route("/api/training/status")
+def training_status():
+    """Estado de recoleccion de imagenes para entrenamiento YOLO."""
+    return jsonify(detector.get_training_status())
+
+
 @app.route("/api/test-connection")
 def test_connection():
     """Prueba la conexion con DeepSeek."""

@@ -3,14 +3,18 @@ Servicio Detector: orquesta OCR + Base de datos BCB + Red Neuronal
 para generar un veredicto completo sobre un billete.
 """
 
+import base64
 import json
 import os
+import threading
 import uuid
+from datetime import datetime
 
 from models.bcb_database import BCBDatabase
 from models.neural_network import NeuralNetwork
 from services.ocr_service import OCRService
 from services.database_service import DatabaseService
+from services.bill_detector_service import BillDetectorService
 import config
 
 
@@ -20,6 +24,7 @@ class DetectorService:
         self.nn = NeuralNetwork()
         self.ocr = OCRService()
         self.database = DatabaseService()
+        self.bill_detector = BillDetectorService()
         self.stats_path = config.SCAN_STATS_PATH
         self.scan_stats = self._load_stats()
 
@@ -56,10 +61,119 @@ class DetectorService:
             self.scan_stats["legal_count"] += 1
         self._save_stats()
 
+    def _save_training_image(self, image_base64: str, batch_id: str):
+        """Guarda imagen raw para entrenamiento YOLO (no-blocking)."""
+        if not config.TRAINING_IMAGES_ENABLED:
+            return None
+
+        try:
+            # Verificar si ya alcanzamos el target
+            count = self._count_training_images()
+            if count >= config.TRAINING_IMAGES_TARGET:
+                return None
+
+            today = datetime.now().strftime("%Y-%m-%d")
+            day_dir = os.path.join(config.TRAINING_IMAGES_DIR, today)
+            os.makedirs(day_dir, exist_ok=True)
+
+            # Guardar imagen como JPEG
+            img_data = image_base64
+            if "," in img_data:
+                img_data = img_data.split(",", 1)[1]
+
+            img_path = os.path.join(day_dir, f"scan_{batch_id}.jpg")
+            with open(img_path, "wb") as f:
+                f.write(base64.b64decode(img_data))
+
+            return img_path
+        except Exception as e:
+            print(f"[Training] Error guardando imagen: {e}")
+            return None
+
+    def _save_training_metadata(self, img_path: str, batch_id: str,
+                                banknotes: list):
+        """Guarda metadata JSON junto a la imagen (en background thread)."""
+        def _save():
+            try:
+                meta_path = img_path.replace(".jpg", ".json")
+                metadata = {
+                    "batch_id": batch_id,
+                    "timestamp": datetime.now().isoformat(),
+                    "bills_detected": len(banknotes),
+                    "banknotes": [
+                        {
+                            "denomination": b.get("denomination"),
+                            "serial": b.get("serial"),
+                            "series": b.get("series", ""),
+                            "verdict": b.get("verdict", ""),
+                        }
+                        for b in banknotes
+                    ],
+                }
+                with open(meta_path, "w", encoding="utf-8") as f:
+                    json.dump(metadata, f, indent=2, ensure_ascii=False)
+            except Exception as e:
+                print(f"[Training] Error guardando metadata: {e}")
+
+        threading.Thread(target=_save, daemon=True).start()
+
+    def _count_training_images(self) -> int:
+        """Cuenta imagenes .jpg en el directorio de training."""
+        base = config.TRAINING_IMAGES_DIR
+        if not os.path.exists(base):
+            return 0
+        count = 0
+        for dirpath, _, filenames in os.walk(base):
+            count += sum(1 for f in filenames if f.endswith(".jpg"))
+        return count
+
+    def get_training_status(self) -> dict:
+        """Retorna estado de la recoleccion de imagenes de entrenamiento."""
+        count = self._count_training_images()
+        disk_mb = 0.0
+        base = config.TRAINING_IMAGES_DIR
+        if os.path.exists(base):
+            for dirpath, _, filenames in os.walk(base):
+                for f in filenames:
+                    disk_mb += os.path.getsize(os.path.join(dirpath, f))
+            disk_mb /= (1024 * 1024)
+        return {
+            "enabled": config.TRAINING_IMAGES_ENABLED,
+            "collected": count,
+            "target": config.TRAINING_IMAGES_TARGET,
+            "disk_usage_mb": round(disk_mb, 1),
+            "ready": count >= config.TRAINING_IMAGES_TARGET,
+        }
+
     def scan_image(self, image_base64: str) -> dict:
-        """Flujo completo: imagen -> OCR -> verificacion -> resultado.
+        """Flujo completo: imagen -> deteccion -> recorte -> OCR -> verificacion.
         Soporta multiples billetes en una sola imagen."""
-        ocr_results = self.ocr.extract_from_image(image_base64)
+
+        # Paso 0: Generar batch_id y guardar imagen para entrenamiento
+        batch_id = str(uuid.uuid4())[:8]
+        training_img_path = self._save_training_image(image_base64, batch_id)
+
+        # Paso 1: Detectar y recortar billetes individuales
+        crops = self.bill_detector.detect_and_crop(image_base64)
+        detected_count = sum(1 for c in crops if c.get("confidence", 0) > 0)
+
+        if detected_count > 1:
+            # Multiples billetes detectados: OCR individual por recorte
+            print(f"[Detector] {detected_count} billetes detectados, OCR individual")
+            ocr_results = []
+            for i, crop in enumerate(crops):
+                print(f"[Detector] OCR billete {i+1}/{detected_count}")
+                result = self.ocr.extract_single_bill(crop["image"])
+                if result and result.get("success"):
+                    ocr_results.append(result)
+
+            # Fallback: si los recortes no dieron resultado, OCR con imagen completa
+            if not ocr_results:
+                print("[Detector] Recortes fallaron, intentando OCR imagen completa")
+                ocr_results = self.ocr.extract_from_image(image_base64)
+        else:
+            # Un billete o deteccion fallo: usar flujo original (multi-billete)
+            ocr_results = self.ocr.extract_from_image(image_base64)
 
         # Filtrar resultados exitosos
         successful = [r for r in ocr_results if r.get("success")]
@@ -76,7 +190,6 @@ class DetectorService:
                 ),
             }
 
-        batch_id = str(uuid.uuid4())[:8]
         banknotes = []
 
         for ocr_result in successful:
@@ -130,6 +243,10 @@ class DetectorService:
         }
         # Backward compat: top-level fields from first banknote
         result.update(banknotes[0])
+
+        # Guardar metadata de entrenamiento (background thread)
+        if training_img_path:
+            self._save_training_metadata(training_img_path, batch_id, banknotes)
 
         return result
 

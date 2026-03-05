@@ -16,6 +16,17 @@ BCB_DATA_PATH = os.path.join(DATA_DIR, "bcb_series.json")
 SCAN_STATS_PATH = os.path.join(DATA_DIR, "scan_stats.json")
 DATABASE_PATH = os.path.join(DATA_DIR, "dr_billetes.db")
 
+# Training image collection
+TRAINING_IMAGES_DIR = os.path.join(DATA_DIR, "training_images")
+TRAINING_IMAGES_ENABLED = os.environ.get("TRAINING_IMAGES_ENABLED", "true").lower() == "true"
+TRAINING_IMAGES_TARGET = int(os.environ.get("TRAINING_IMAGES_TARGET", "200"))
+
+# Bill detection (OpenCV / YOLO ONNX)
+BILL_DETECTOR_MODEL_PATH = os.path.join(DATA_DIR, "billete_detector.onnx")
+BILL_DETECTION_CONFIDENCE = float(os.environ.get("BILL_DETECTION_CONFIDENCE", "0.5"))
+BILL_DETECTION_MAX_BILLS = int(os.environ.get("BILL_DETECTION_MAX_BILLS", "10"))
+BILL_CROP_PADDING = float(os.environ.get("BILL_CROP_PADDING", "0.08"))
+
 FLASK_HOST = "0.0.0.0"
 FLASK_PORT = 5000
 FLASK_DEBUG = False
